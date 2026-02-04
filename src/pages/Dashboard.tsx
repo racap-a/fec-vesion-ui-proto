@@ -24,9 +24,10 @@ const monthlyData = [
 
 const journalData = [
     { name: 'Achats', value: 45, color: '#3b82f6' }, // brand-primary
-    { name: 'Ventes', value: 30, color: '#10b981' }, // emerald-500
+    { name: 'Ventes', value: 25, color: '#10b981' }, // emerald-500
     { name: 'Banque', value: 15, color: '#f59e0b' }, // amber-500
-    { name: 'OD', value: 10, color: '#94a3b8' }, // slate-400
+    { name: 'OD', value: 10, color: '#94a3b8' }, // slate-400 th
+    { name: 'TVA', value: 5, color: '#971605ff' }, // TVA
 ];
 
 const Dashboard = () => {

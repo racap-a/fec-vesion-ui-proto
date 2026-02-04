@@ -13,15 +13,24 @@ const Ingestion = () => {
     const [isProcessing, setIsProcessing] = useState(false);
 
     // Simulate the Engine Workflow
+    // Simulate the Engine Workflow
     const startEngine = () => {
         setIsProcessing(true);
-        // Simulate F2 -> F3 transition
-        setTimeout(() => setCurrentStep(2), 1500); // Validation
-        setTimeout(() => setCurrentStep(3), 3000); // Processing (-dim/-fact)
+
+        // Realism: The manager clicks, and the "Engine" starts working
         setTimeout(() => {
-            setCurrentStep(4);
+            setCurrentStep(2); // Step: Validation
+            // Add a "toast" notification or console log for flair
+        }, 1200);
+
+        setTimeout(() => {
+            setCurrentStep(3); // Step: Engine Processing (-dim/-fact)
+        }, 3500);
+
+        setTimeout(() => {
+            setCurrentStep(4); // Step: Complete
             setIsProcessing(false);
-        }, 5000);
+        }, 6000);
     };
 
     return (

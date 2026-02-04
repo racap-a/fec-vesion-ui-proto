@@ -20,7 +20,7 @@ const Mapping = () => {
             {/* Workspace Header */}
             <header className="bg-white border-b border-slate-200 px-8 py-4 flex items-center justify-between">
                 <div>
-                    <h1 className="text-xl font-bold text-slate-900">Account Mapping</h1>
+                    <h1 className="text-xl font-bold text-slate-900">Mapping Reporting</h1>
                     <p className="text-xs text-slate-500 font-mono">Trigger: -transload do=VIRTUAL</p>
                 </div>
                 <div className="flex items-center gap-4">
