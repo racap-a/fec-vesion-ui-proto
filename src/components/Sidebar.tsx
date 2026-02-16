@@ -3,7 +3,7 @@ import { LayoutDashboard, Building2, UploadCloud, Map, Database, PlusCircle, Log
 import { clsx } from 'clsx';
 
 const navigation = [
-    { name: 'Dashboard', icon: LayoutDashboard, href: '/' },
+    { name: 'Home', icon: LayoutDashboard, href: '/' },
     { name: 'Companies', icon: Building2, href: '/admin/companies' },
     { name: 'Create Company', icon: PlusCircle, href: '/admin/create-company' },
     { name: 'FEC Ingestion', icon: UploadCloud, href: '/ingestion' },

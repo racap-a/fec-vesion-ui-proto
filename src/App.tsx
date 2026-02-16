@@ -1,4 +1,5 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
+import { AuthProvider } from './context/AuthContext';
 import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
 import Companies from './pages/admin/Companies';
@@ -9,26 +10,28 @@ import Login from './pages/Login';
 
 function App() {
   return (
-    <Routes>
-      {/* Main Application Shell */}
-      <Route path="/" element={<Layout />}>
-        <Route index element={<Dashboard />} />
+    <AuthProvider>
+      <Routes>
+        {/* Main Application Shell */}
+        <Route path="/" element={<Layout />}>
+          <Route index element={<Dashboard />} />
 
-        {/* Admin Routes (F1 & F1b) */}
-        <Route path="admin/companies" element={<Companies />} />
-        <Route path="admin/create-company" element={<CreateCompany />} />
+          {/* Admin Routes (F1 & F1b) */}
+          <Route path="admin/companies" element={<Companies />} />
+          <Route path="admin/create-company" element={<CreateCompany />} />
 
-        {/* User Operations (F2, F3, F4) */}
-        <Route path="ingestion" element={<Ingestion />} />
-        <Route path="mapping" element={<Mapping />} />
+          {/* User Operations (F2, F3, F4) */}
+          <Route path="ingestion" element={<Ingestion />} />
+          <Route path="mapping" element={<Mapping />} />
 
-        {/* Auth Demo */}
-        <Route path="login" element={<Login />} />
+          {/* Auth Demo */}
+          <Route path="login" element={<Login />} />
 
-        {/* Catch-all redirect */}
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Route>
-    </Routes>
+          {/* Catch-all redirect */}
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Route>
+      </Routes>
+    </AuthProvider>
   );
 }
 
