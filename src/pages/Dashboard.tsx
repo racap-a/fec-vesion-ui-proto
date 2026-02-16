@@ -16,13 +16,15 @@ const Dashboard = () => {
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 {/* Admin Module */}
-                <Link to="/admin/companies" className="group bg-white p-8 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-all">
-                    <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
-                        <Building2 size={24} />
-                    </div>
-                    <h3 className="text-lg font-bold text-slate-900 mb-2">Company Management</h3>
-                    <p className="text-slate-500 text-sm">Administer client environments, databases, and access controls.</p>
-                </Link>
+                {user?.role === 'Admin' && (
+                    <Link to="/admin/companies" className="group bg-white p-8 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-all">
+                        <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+                            <Building2 size={24} />
+                        </div>
+                        <h3 className="text-lg font-bold text-slate-900 mb-2">Company Management</h3>
+                        <p className="text-slate-500 text-sm">Administer client environments, databases, and access controls.</p>
+                    </Link>
+                )}
 
                 {/* Ingestion Module */}
                 <Link to="/ingestion" className="group bg-white p-8 rounded-2xl border border-slate-200 shadow-sm hover:shadow-md transition-all">
