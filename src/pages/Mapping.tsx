@@ -210,7 +210,7 @@ const Mapping = () => {
                             <input
                                 type="text"
                                 placeholder="Search unmapped..."
-                                className="w-full pl-10 pr-4 py-2 bg-slate-50 border-none rounded-lg text-sm focus:ring-2 focus:ring-brand-primary/20"
+                                className="w-full pl-10 pr-4 py-2 bg-slate-50 border-none rounded-lg text-sm focus:ring-2 focus:ring-brand-primary/20 text-slate-900 bg-white border border-slate-200"
                             />
                         </div>
                     </div>

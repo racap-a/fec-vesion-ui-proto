@@ -42,6 +42,14 @@ const Companies = () => {
         }
     };
 
+    const [searchTerm, setSearchTerm] = useState('');
+
+    const filteredCompanies = companies.filter(company =>
+        (company.companyName?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
+        (company.companyCode?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
+        (company.databaseName?.toLowerCase() || '').includes(searchTerm.toLowerCase())
+    );
+
     if (isLoading) return (
         <div className="flex items-center justify-center h-full text-slate-400">
             <Loader2 className="animate-spin mr-2" /> Loading companies...
@@ -75,7 +83,9 @@ const Companies = () => {
                     <input
                         type="text"
                         placeholder="Search companies..."
-                        className="w-full pl-10 pr-4 py-2 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-primary/20 transition-all"
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        className="w-full pl-10 pr-4 py-2 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-primary/20 transition-all text-slate-900 bg-white"
                     />
                 </div>
             </div>
@@ -92,7 +102,7 @@ const Companies = () => {
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                        {companies.map((company) => (
+                        {filteredCompanies.map((company) => (
                             <tr key={company.companyID} className="hover:bg-slate-50/50 transition-colors group">
                                 <td className="px-6 py-4 font-medium text-slate-900 flex items-center gap-3">
                                     <div className="w-8 h-8 rounded bg-slate-100 flex items-center justify-center text-slate-500 group-hover:bg-brand-primary/10 group-hover:text-brand-primary transition-colors">
@@ -108,8 +118,8 @@ const Companies = () => {
                                     <button
                                         onClick={() => toggleStatus(company.companyID)}
                                         className={`px-2.5 py-1 rounded-full text-xs font-medium border cursor-pointer hover:opacity-80 ${company.isActive
-                                                ? 'bg-emerald-50 text-emerald-600 border-emerald-100'
-                                                : 'bg-rose-50 text-rose-600 border-rose-100'
+                                            ? 'bg-emerald-50 text-emerald-600 border-emerald-100'
+                                            : 'bg-rose-50 text-rose-600 border-rose-100'
                                             }`}>
                                         {company.isActive ? 'Active' : 'Inactive'}
                                     </button>
