@@ -58,7 +58,7 @@ const Login = () => {
                                 placeholder="Enter username"
                                 value={username}
                                 onChange={(e) => setUsername(e.target.value)}
-                                className="w-full pl-10 pr-4 py-2.5 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-brand-primary/20 focus:border-brand-primary transition-all"
+                                className="w-full pl-10 pr-4 py-2.5 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-brand-primary/20 focus:border-brand-primary transition-all text-slate-900 bg-white"
                                 required
                             />
                             <User className="absolute left-3 top-2.5 text-slate-400" size={20} />
@@ -73,7 +73,7 @@ const Login = () => {
                                 placeholder="••••••••"
                                 value={password}
                                 onChange={(e) => setPassword(e.target.value)}
-                                className="w-full pl-10 pr-4 py-2.5 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-brand-primary/20 focus:border-brand-primary transition-all"
+                                className="w-full pl-10 pr-4 py-2.5 rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-brand-primary/20 focus:border-brand-primary transition-all text-slate-900 bg-white"
                                 required
                             />
                             <Lock className="absolute left-3 top-2.5 text-slate-400" size={20} />
