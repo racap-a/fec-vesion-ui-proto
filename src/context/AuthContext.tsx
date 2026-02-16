@@ -3,6 +3,7 @@ import api from '../services/api';
 
 // Types derived from API Docs
 export interface User {
+    id?: number; // Optional as it might not be in all responses initially
     username: string;
     fullName: string;
     role: 'Admin' | 'CompanyUser';

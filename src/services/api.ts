@@ -17,7 +17,16 @@ api.interceptors.request.use(
         const token = localStorage.getItem('token');
         if (token) {
             config.headers.Authorization = `Bearer ${token}`;
+            console.log(`[API] Attaching token: ${token.substring(0, 10)}...`);
+        } else {
+            console.warn('[API] No token found in localStorage');
         }
+
+        // Fix for File Uploads: Let browser set Content-Type with boundary for FormData
+        if (config.data instanceof FormData) {
+            delete config.headers['Content-Type'];
+        }
+
         return config;
     },
     (error) => Promise.reject(error)

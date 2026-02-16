@@ -1,189 +1,306 @@
-import { useState } from 'react';
-import { Upload, CheckCircle2, Cog, FileText, ArrowRight, AlertTriangle } from 'lucide-react';
-import api from '../services/api';
+import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
-
-const steps = [
-    { id: 1, name: 'Upload', description: 'Landing FEC files', icon: Upload },
-    { id: 2, name: 'Engine Start', description: 'Trigger Processing', icon: Cog },
-    { id: 3, name: 'Processing', description: 'Generating Cubes', icon: FileText },
-    { id: 4, name: 'Ready', description: 'Mapping Available', icon: CheckCircle2 },
-];
+import { IngestionService, type IngestionLog } from '../services/ingestion';
+import { UploadZone } from '../components/ingestion/UploadZone';
+import { OrchestrationStepper } from '../components/ingestion/OrchestrationStepper';
+import { LogTerminal } from '../components/ingestion/LogTerminal';
+import { HistoryTable } from '../components/ingestion/HistoryTable';
+import { AlertCircle, Play, RefreshCw, ArrowRight, CheckCircle2 } from 'lucide-react';
+import { clsx } from 'clsx';
+import { useNavigate } from 'react-router-dom';
 
 const Ingestion = () => {
     const { user } = useAuth();
-    const [currentStep, setCurrentStep] = useState(1);
+    const navigate = useNavigate();
+
+    // State
+    const [activeLog, setActiveLog] = useState<IngestionLog | null>(null);
+    const [historyLogs, setHistoryLogs] = useState<IngestionLog[]>([]);
     const [isProcessing, setIsProcessing] = useState(false);
-    const [selectedFile, setSelectedFile] = useState<File | null>(null);
-    const [logs, setLogs] = useState<string[]>([]);
     const [error, setError] = useState<string>('');
+    const [isLoadingHistory, setIsLoadingHistory] = useState(false);
 
-    const addLog = (msg: string) => setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${msg}`]);
+    // Refs for polling
+    const pollInterval = useRef<ReturnType<typeof setInterval> | null>(null);
 
-    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (e.target.files && e.target.files[0]) {
-            setSelectedFile(e.target.files[0]);
-            setError('');
+    // Initial Load
+    useEffect(() => {
+        if (user?.companyId) {
+            fetchHistory();
+        }
+        return () => stopPolling();
+    }, [user?.companyId]);
+
+    // Cleanup polling on unmount
+    useEffect(() => {
+        return () => stopPolling();
+    }, []);
+
+    // --- Actions ---
+
+    const fetchHistory = async () => {
+        if (!user?.companyId) return;
+        setIsLoadingHistory(true);
+        try {
+            const logs = await IngestionService.getHistory(user.companyId);
+            setHistoryLogs(Array.isArray(logs) ? logs : []);
+        } catch (err) {
+            console.error('Failed to load history', err);
+        } finally {
+            setIsLoadingHistory(false);
         }
     };
 
-    const runIngestionFlow = async () => {
-        if (!selectedFile) return;
+    const handleFileSelected = async (file: File) => {
         if (!user?.companyId) {
-            setError('No Company Context. Please log in as a Company User.');
+            setError('No Company Context');
             return;
         }
 
         setIsProcessing(true);
-        setLogs([]);
         setError('');
 
         try {
-            // Step 1: Upload
-            addLog('Starting Upload...');
-            const formData = new FormData();
-            formData.append('file', selectedFile);
+            // 1. Upload File
+            const response = await IngestionService.uploadFile(user.companyId, file);
 
-            await api.post(`/fecingestion/upload/${user.companyId}`, formData, {
-                headers: { 'Content-Type': 'multipart/form-data' }
-            });
+            // 2. Create local partial log state immediately from response
+            const newLog: IngestionLog = {
+                logID: response.logId,
+                companyID: user.companyId,
+                userID: user.id || 0,
+                fileName: response.fileName,
+                originalFileName: response.originalFileName,
+                status: 'Uploaded',
+                currentStep: 'File Uploaded to Landing Zone',
+                engineOutput: '',
+                processedRows: null,
+                errorMessage: null,
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString()
+            };
 
-            addLog('Upload Successful. File in Landing Zone.');
-            setCurrentStep(2);
-
-            // Step 2: Trigger Engine
-            addLog('Triggering Engine (kpiweb154)...');
-            const triggerResponse = await api.post(`/fecingestion/trigger-engine/${user.companyId}`);
-
-            if (triggerResponse.data.success) {
-                addLog(`Engine Started. Output Lines: ${triggerResponse.data.outputLines}`);
-                setCurrentStep(3);
-
-                // Simulate processing time since engine is async or fast
-                setTimeout(() => {
-                    addLog('Cube Generation Complete.');
-                    setCurrentStep(4);
-                    setIsProcessing(false);
-                }, 2000);
-            } else {
-                throw new Error(triggerResponse.data.error || 'Engine failed to start');
-            }
+            setActiveLog(newLog);
+            setHistoryLogs(prev => [newLog, ...(Array.isArray(prev) ? prev : [])]);
 
         } catch (err: any) {
             console.error(err);
-            setError(err.response?.data?.message || err.message || 'Ingestion Failed');
+            setError(err.response?.data?.message || 'Upload Failed');
+        } finally {
             setIsProcessing(false);
         }
     };
 
+    const handleStartProcessing = async () => {
+        if (!activeLog) return;
+
+        setIsProcessing(true);
+        setError('');
+
+        try {
+            // 1. Trigger Engine
+            await IngestionService.triggerEngine(activeLog.logID);
+
+            // 2. Start Polling
+            startPolling(activeLog.logID);
+
+        } catch (err: any) {
+            console.error(err);
+            setError(err.response?.data?.message || 'Failed to start engine');
+            setIsProcessing(false);
+        }
+    };
+
+    const startPolling = (logId: number) => {
+        stopPolling(); // Ensure no duplicate intervals
+
+        pollInterval.current = setInterval(async () => {
+            try {
+                const updatedLog = await IngestionService.getStatus(logId);
+                setActiveLog(updatedLog);
+
+                // Update history list with new status
+                setHistoryLogs(prev => prev.map(l => l.logID === logId ? updatedLog : l));
+
+                // Stop polling if done
+                if (updatedLog.status === 'Completed' || updatedLog.status === 'Failed') {
+                    stopPolling();
+                    setIsProcessing(false);
+                }
+            } catch (err) {
+                console.error('Polling error', err);
+                stopPolling();
+                setIsProcessing(false);
+            }
+        }, 2000); // Poll every 2 seconds
+    };
+
+    const stopPolling = () => {
+        if (pollInterval.current) {
+            clearInterval(pollInterval.current);
+            pollInterval.current = null;
+        }
+    };
+
+    const handleSelectLog = (log: IngestionLog) => {
+        setActiveLog(log);
+        stopPolling();
+
+        // If selected log is in progress, resume polling
+        if (log.status === 'Processing') {
+            startPolling(log.logID);
+            setIsProcessing(true);
+        } else {
+            setIsProcessing(false);
+        }
+    };
+
+    const clearActiveLog = () => {
+        setActiveLog(null);
+        stopPolling();
+        setIsProcessing(false);
+        setError('');
+    };
+
     return (
-        <div className="p-8 max-w-5xl mx-auto">
-            <header className="mb-8">
-                <h1 className="text-3xl font-bold text-slate-900">FEC Data Ingestion</h1>
-                <p className="text-slate-500">Upload and process accounting entries for {user?.companyName || 'Unknown Company'}.</p>
+        <div className="p-8 max-w-6xl mx-auto space-y-8">
+            <header className="flex justify-between items-start">
+                <div>
+                    <h1 className="text-3xl font-bold text-slate-900">FEC Data Ingestion</h1>
+                    <p className="text-slate-500 mt-1">Upload and process accounting entries for <span className="font-semibold text-slate-700">{user?.companyName}</span>.</p>
+                </div>
+                {activeLog && (
+                    <button
+                        onClick={clearActiveLog}
+                        className="text-sm text-slate-500 hover:text-slate-800 underline"
+                    >
+                        Start New Upload
+                    </button>
+                )}
             </header>
 
-            {/* Stepper Header */}
-            <nav aria-label="Progress" className="mb-12">
-                <ol className="flex items-center">
-                    {steps.map((step, idx) => (
-                        <li key={step.name} className={`relative ${idx !== steps.length - 1 ? 'pr-8 sm:pr-20' : ''}`}>
-                            <div className="flex items-center">
-                                <div className={`z-10 flex h-10 w-10 items-center justify-center rounded-full transition-colors ${currentStep >= step.id ? 'bg-brand-primary text-white' : 'bg-slate-200 text-slate-500'
-                                    }`}>
-                                    <step.icon size={20} />
-                                </div>
-                                {idx !== steps.length - 1 && (
-                                    <div className={`absolute top-5 left-10 h-0.5 w-full -z-0 ${currentStep > step.id ? 'bg-brand-primary' : 'bg-slate-200'
-                                        }`} />
-                                )}
-                            </div>
-                            <div className="mt-2">
-                                <span className="text-xs font-bold uppercase tracking-wide text-slate-900">{step.name}</span>
-                            </div>
-                        </li>
-                    ))}
-                </ol>
-            </nav>
-
-            {/* Error Banner */}
             {error && (
-                <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 flex items-center gap-3">
-                    <AlertTriangle size={20} />
+                <div className="p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 flex items-center gap-3 animate-in fade-in slide-in-from-top-2">
+                    <AlertCircle size={20} />
                     {error}
                 </div>
             )}
 
-            {/* Main Content Card */}
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden min-h-[400px]">
-                {currentStep === 1 && (
-                    <div className="p-12 text-center flex flex-col items-center justify-center h-full">
-                        <div className="mx-auto w-16 h-16 bg-blue-50 text-brand-primary rounded-full flex items-center justify-center mb-4">
-                            <Upload size={32} />
-                        </div>
-                        <h3 className="text-lg font-semibold mb-2">Select FEC File</h3>
-                        <input
-                            type="file"
-                            accept=".txt,.csv"
-                            onChange={handleFileChange}
-                            className="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-brand-primary hover:file:bg-blue-100 mb-6 max-w-xs mx-auto"
-                        />
-                        <button
-                            onClick={runIngestionFlow}
-                            disabled={isProcessing || !selectedFile}
-                            className="bg-brand-primary hover:bg-brand-primary/90 text-white px-8 py-3 rounded-xl font-semibold inline-flex items-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                            {isProcessing ? 'Uploading...' : 'Upload & Start Engine'}
-                            <ArrowRight size={18} />
-                        </button>
-                    </div>
-                )}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                {/* Left Panel: Active Workflow */}
+                <div className="lg:col-span-2 space-y-6">
 
-                {currentStep > 1 && currentStep < 4 && (
-                    <div className="p-12">
-                        <div className="flex items-center justify-between mb-8">
-                            <div>
-                                <h3 className="text-lg font-semibold">Engine Activity</h3>
-                                <p className="text-sm text-slate-500 font-mono">&gt; Processing stream...</p>
+                    {/* 1. Upload Zone */}
+                    {!activeLog || activeLog.status === 'Uploaded' ? (
+                        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                            <div className="mb-4 flex items-center justify-between">
+                                <h2 className="text-lg font-bold text-slate-800">1. Upload File</h2>
+                                {activeLog && <span className="text-xs font-mono bg-slate-100 text-slate-500 px-2 py-1 rounded">Log ID: {activeLog.logID}</span>}
                             </div>
-                            <div className="flex items-center gap-2 text-brand-primary animate-pulse">
-                                <Cog className="animate-spin" size={20} />
-                                <span className="text-sm font-bold uppercase">Live Engine Feed</span>
-                            </div>
-                        </div>
 
-                        <div className="space-y-3">
-                            <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-                                <div
-                                    className="h-full bg-brand-primary transition-all duration-500"
-                                    style={{ width: `${(currentStep / steps.length) * 100}%` }}
-                                />
-                            </div>
-                            <div className="bg-slate-900 rounded-lg p-4 font-mono text-xs text-emerald-400 space-y-1 h-48 overflow-y-auto">
-                                {logs.map((log, i) => (
-                                    <p key={i}>{log}</p>
-                                ))}
-                            </div>
-                        </div>
-                    </div>
-                )}
+                            <UploadZone
+                                onFileSelected={handleFileSelected}
+                                isProcessing={isProcessing}
+                                selectedFile={activeLog ? ({ name: activeLog.originalFileName, size: 0 } as File) : null} // Mock file object for display
+                                clearFile={clearActiveLog}
+                            />
 
-                {currentStep === 4 && (
-                    <div className="p-12 text-center animate-in fade-in zoom-in duration-300 flex flex-col items-center justify-center h-full">
-                        <div className="mx-auto w-16 h-16 bg-emerald-50 text-emerald-600 rounded-full flex items-center justify-center mb-4">
-                            <CheckCircle2 size={32} />
+                            {/* Action to Proceed */}
+                            {activeLog && activeLog.status === 'Uploaded' && (
+                                <div className="mt-6 flex justify-end">
+                                    <button
+                                        onClick={handleStartProcessing}
+                                        disabled={isProcessing}
+                                        className="bg-brand-primary hover:bg-slate-800 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-brand-primary/20 transition-all"
+                                    >
+                                        {isProcessing ? <RefreshCw className="animate-spin" /> : <Play size={20} />}
+                                        Start Engine Processing
+                                    </button>
+                                </div>
+                            )}
                         </div>
-                        <h3 className="text-lg font-semibold">Processing Complete</h3>
-                        <p className="text-slate-500 mb-6 text-sm">Data has been transformed into SQL cubes. You can now proceed to mapping.</p>
-                        <button className="bg-slate-900 text-white px-8 py-3 rounded-xl font-semibold hover:bg-slate-800 transition-colors">
-                            Go to Mapping (F4)
-                        </button>
-                    </div>
-                )}
+                    ) : null}
+
+                    {/* 2. Orchestration & Logs (Visible when Active Log exists) */}
+                    {activeLog && (
+                        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 animate-in fade-in slide-in-from-bottom-4">
+                            <div className="mb-6 flex items-center justify-between">
+                                <h2 className="text-lg font-bold text-slate-800">2. Orchestration Pipeline</h2>
+                                <span className={clsx(
+                                    "px-3 py-1 rounded-full text-xs font-bold uppercase",
+                                    activeLog.status === 'Processing' ? "bg-blue-100 text-blue-700 animate-pulse" :
+                                        activeLog.status === 'Completed' ? "bg-emerald-100 text-emerald-700" :
+                                            activeLog.status === 'Failed' ? "bg-red-100 text-red-700 border border-red-200" :
+                                                "bg-slate-100 text-slate-500"
+                                )}>
+                                    {activeLog.status === 'Failed' ? 'Process Failed' : activeLog.status}
+                                </span>
+                            </div>
+
+                            {activeLog.status !== 'Completed' && (
+                                <>
+                                    <OrchestrationStepper log={activeLog} />
+                                    <div className="mt-8">
+                                        <LogTerminal log={activeLog} />
+                                    </div>
+                                </>
+                            )}
+
+                            {activeLog.status === 'Completed' && (
+                                <div className="text-center py-12 animate-in fade-in zoom-in duration-500">
+                                    <div className="mx-auto w-24 h-24 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mb-6 shadow-sm">
+                                        <CheckCircle2 size={48} className="animate-in zoom-in spin-in-12 duration-700" />
+                                    </div>
+                                    <h2 className="text-2xl font-bold text-slate-900 mb-2">Ingestion Successful!</h2>
+                                    <p className="text-slate-500 mb-8">
+                                        Successfully processed <span className="font-mono font-bold text-slate-900">{activeLog.processedRows?.toLocaleString() || 0}</span> rows.
+                                        <br />
+                                        Data has been transformed and is ready for analysis.
+                                    </p>
+
+                                    <button
+                                        onClick={() => navigate('/mapping')}
+                                        className="bg-brand-primary hover:bg-brand-primary/90 text-white px-8 py-4 rounded-xl font-bold inline-flex items-center gap-3 shadow-lg shadow-brand-primary/20 transition-all hover:scale-105"
+                                    >
+                                        Analyze & Map Accounts (F4) <ArrowRight size={20} />
+                                    </button>
+                                </div>
+                            )}
+
+                            {activeLog.status === 'Failed' && (
+                                <div className="mt-6 flex justify-end gap-4">
+                                    <button
+                                        onClick={clearActiveLog}
+                                        className="text-slate-500 hover:text-slate-700 px-6 py-3 font-semibold"
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        onClick={handleStartProcessing}
+                                        disabled={isProcessing}
+                                        className="bg-red-600 hover:bg-red-700 text-white px-8 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-red-600/20 transition-all"
+                                    >
+                                        {isProcessing ? <RefreshCw className="animate-spin" /> : <RefreshCw size={20} />}
+                                        Re-run Process
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
+
+                {/* Right Panel: History */}
+                <div className="lg:col-span-1">
+                    <HistoryTable
+                        logs={historyLogs}
+                        onSelectLog={handleSelectLog}
+                        isLoading={isLoadingHistory}
+                        onRefresh={fetchHistory}
+                    />
+                </div>
             </div>
         </div>
     );
 };
 
 export default Ingestion;
-
