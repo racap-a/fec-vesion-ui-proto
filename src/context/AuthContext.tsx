@@ -8,6 +8,7 @@ export interface User {
     fullName: string;
     role: 'Admin' | 'CompanyUser';
     companyId: number | null;
+    companyCode?: string; // Added for Financial Dashboard context
     companyName: string | null;
     expiresAt: string;
 }

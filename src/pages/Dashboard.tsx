@@ -1,6 +1,7 @@
 import { Building2, UploadCloud, Map, ShieldCheck } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { FinancialIngestionDashboard } from '../components/dashboard/FinancialIngestionDashboard';
 
 const Dashboard = () => {
     const { user } = useAuth();
@@ -13,6 +14,10 @@ const Dashboard = () => {
                     Current Environment: <span className="font-semibold text-slate-900">{user?.companyName || 'No Company Selected'}</span>
                 </p>
             </header>
+
+            <div className="mb-12">
+                <FinancialIngestionDashboard />
+            </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 {/* Admin Module */}
