@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { Search, ChevronRight, ChevronDown, GripVertical, Save, Folder, FileDigit, X, CheckCircle2 } from 'lucide-react';
+import { Search, ChevronRight, ChevronDown, GripVertical, Save, Folder, FileDigit, X, CheckCircle2, Loader2, AlertCircle } from 'lucide-react';
 import { clsx } from 'clsx';
 import { DndContext, DragOverlay, useDraggable, useDroppable, type DragStartEvent, type DragEndEvent } from '@dnd-kit/core';
+import api from '../services/api';
 
 // --- Data Models ---
 export interface UnmappedAccount {
@@ -24,61 +25,10 @@ export interface TreeNode {
 
 export interface MappingPayloadDto {
     sourceAccountId: string;
+    sourceAccountName: string;
     targetPcgCode: string;
+    targetPcgName: string;
 }
-
-// --- Initial Data ---
-const INITIAL_TREE_DATA: TreeNode[] = [
-    {
-        id: 'charges_var',
-        label: 'Charges variables',
-        type: 'category',
-        isOpen: true,
-        children: [
-            { id: 'carburants', label: 'Carburants', type: 'category', children: [] },
-            { id: 'voyages', label: 'Voyages & Réceptions', type: 'category', children: [] },
-        ]
-    },
-    {
-        id: 'couts_fixes',
-        label: 'Coûts fixes',
-        type: 'category',
-        isOpen: true,
-        children: [
-            {
-                id: 'autres_achats',
-                label: 'Autres achats, charges externes',
-                type: 'category',
-                isOpen: true,
-                children: [
-                    { id: 'assurances', label: 'Assurances', type: 'category', children: [] },
-                    {
-                        id: 'fournitures',
-                        label: 'Fournitures',
-                        type: 'category',
-                        isOpen: true,
-                        children: [
-                            {
-                                id: '606', // PCG Code
-                                label: '606 - Achats non stockés de matières et fournitures',
-                                type: 'pals_account',
-                                isOpen: true,
-                                children: []
-                            }
-                        ]
-                    }
-                ]
-            }
-        ]
-    }
-];
-
-const INITIAL_UNMAPPED: UnmappedAccount[] = [
-    { accountId: '60630000', accountName: 'Fourniture entretien /pt équipement', balance: 1240.00 },
-    { accountId: '60650000', accountName: 'Fournitures informatiques', balance: 540.50 },
-    { accountId: '60680100', accountName: 'AIC Autres matières et fournitures', balance: 150.20 },
-    { accountId: '62610000', accountName: 'Frais postaux et télécoms', balance: 45000.00 },
-];
 
 // --- Sub-components ---
 
@@ -126,8 +76,8 @@ interface DroppableTreeNodeProps {
 }
 
 const DroppableTreeNode: React.FC<DroppableTreeNodeProps> = ({ node, level, onToggle, onUnmap, renderChildren }) => {
-    // Only category and pals_account are valid drop targets
-    const isDroppable = node.type === 'category' || node.type === 'pals_account';
+    // Only pals_account are valid drop targets
+    const isDroppable = node.type === 'pals_account';
 
     // We prefix the tree node ID so we don't collide with account IDs
     const { setNodeRef, isOver } = useDroppable({
@@ -206,13 +156,49 @@ const DroppableTreeNode: React.FC<DroppableTreeNodeProps> = ({ node, level, onTo
 // --- Main Component ---
 const Mapping = () => {
     const { user } = useAuth();
-    const [treeData, setTreeData] = useState<TreeNode[]>(INITIAL_TREE_DATA);
-    const [unmappedAccounts, setUnmappedAccounts] = useState<UnmappedAccount[]>(INITIAL_UNMAPPED);
+    const [treeData, setTreeData] = useState<TreeNode[]>([]);
+    const [unmappedAccounts, setUnmappedAccounts] = useState<UnmappedAccount[]>([]);
     const [searchQuery, setSearchQuery] = useState('');
     const [isSaving, setIsSaving] = useState(false);
+    const [isLoading, setIsLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
 
     // For Drag Overlay
     const [activeAccount, setActiveAccount] = useState<UnmappedAccount | null>(null);
+
+    // --- Data Fetching ---
+    useEffect(() => {
+        const fetchData = async () => {
+            if (!user?.companyId) return;
+            
+            setIsLoading(true);
+            setError(null);
+            
+            try {
+                // Run in parallel
+                const [treeRes, unmappedRes] = await Promise.all([
+                    api.get(`/mapping/${user.companyId}/pcg-tree`),
+                    api.get(`/mapping/${user.companyId}/unmapped`)
+                ]);
+                
+                setTreeData(treeRes.data.tree);
+                
+                const accounts = unmappedRes.data.accounts.map((acc: any) => ({
+                    accountId: acc.accountId,
+                    accountName: acc.accountName,
+                    balance: acc.balance
+                }));
+                setUnmappedAccounts(accounts);
+            } catch (err) {
+                console.error("Failed to load mapping data:", err);
+                setError("Impossible de charger la structure PCG.");
+            } finally {
+                setIsLoading(false);
+            }
+        };
+
+        fetchData();
+    }, [user?.companyId]);
 
     // --- Interaction Handlers ---
 
@@ -326,40 +312,52 @@ const Mapping = () => {
 
     // --- API / Save Logic ---
     const handleSyncClick = async () => {
+        if (!user?.companyId) return;
         setIsSaving(true);
+        setError(null);
 
         const payload: MappingPayloadDto[] = [];
 
         // Recursive extractor
-        const extractMappings = (nodes: TreeNode[], parentPcgCode: string | null = null) => {
+        const extractMappings = (nodes: TreeNode[], parentPcgCode: string | null = null, parentPcgName: string | null = null) => {
             nodes.forEach(node => {
                 // Determine the current PCG target (only pals_account nodes act as the target)
                 // If it's a category, we pass down whatever the parent's target was (usually none)
-                const currentTarget = node.type === 'pals_account' ? node.id : parentPcgCode;
+                const currentTargetId = node.type === 'pals_account' ? node.id : parentPcgCode;
+                const currentTargetName = node.type === 'pals_account' ? node.label : parentPcgName;
 
-                if (node.type === 'mapped_account' && node.sourceAccountId && parentPcgCode) {
-                    // Valid mapping found
+                if (node.type === 'mapped_account' && node.sourceAccountId && currentTargetId && currentTargetName) {
+                    // We extract the pure account name by stripping the `accountId - ` prefix that was added
+                    const sourceAccName = node.label.replace(`${node.sourceAccountId} - `, '');
+                    
                     payload.push({
                         sourceAccountId: node.sourceAccountId,
-                        targetPcgCode: parentPcgCode // The nearest parent 'pals_account'
+                        sourceAccountName: sourceAccName,
+                        targetPcgCode: currentTargetId,
+                        targetPcgName: currentTargetName
                     });
                 }
 
                 if (node.children) {
-                    extractMappings(node.children, currentTarget);
+                    extractMappings(node.children, currentTargetId, currentTargetName);
                 }
             });
         };
 
         extractMappings(treeData);
 
-        console.log('Sending Payload to API:', payload);
-
-        // Simulate API delay
-        setTimeout(() => {
-            alert(`Mock API Success\nSynced ${payload.length} mappings to engine.`);
+        try {
+            await api.post(`/mapping/${user.companyId}/sync`, {
+                mappings: payload,
+                triggerEngine: true
+            });
+            alert("Mappings synchronisés avec succès");
+        } catch (err) {
+            console.error("Sync error:", err);
+            alert("Erreur lors de la synchronisation. Vos mappings locaux sont conservés.");
+        } finally {
             setIsSaving(false);
-        }, 1500);
+        }
     };
 
     // --- Render Helpers ---
@@ -418,7 +416,19 @@ const Mapping = () => {
                             </span>
                         </div>
                         <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
-                            {renderTree(treeData)}
+                            {isLoading ? (
+                                <div className="flex flex-col items-center justify-center p-12 text-slate-500">
+                                    <Loader2 size={32} className="animate-spin mb-4" />
+                                    <p className="text-sm font-medium">Chargement des données...</p>
+                                </div>
+                            ) : error ? (
+                                <div className="bg-red-900/40 text-red-400 border border-red-900 rounded-lg p-4 flex items-center gap-3">
+                                    <AlertCircle size={20} />
+                                    {error}
+                                </div>
+                            ) : (
+                                renderTree(treeData)
+                            )}
                         </div>
                     </div>
 

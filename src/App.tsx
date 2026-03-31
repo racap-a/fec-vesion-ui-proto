@@ -6,6 +6,7 @@ import Companies from './pages/admin/Companies';
 import CreateCompany from './pages/admin/CreateCompany';
 import Ingestion from './pages/Ingestion';
 import Mapping from './pages/Mapping';
+import AIPnlValidation from './pages/AIPnlValidation';
 import Login from './pages/Login';
 import type { ReactNode } from 'react';
 
@@ -61,6 +62,7 @@ function App() {
           {/* Standard User Features (Accessible to all authenticated users) */}
           <Route path="ingestion" element={<Ingestion />} />
           <Route path="mapping" element={<Mapping />} />
+          <Route path="ai-pnl-validation" element={<AIPnlValidation />} />
         </Route>
 
         {/* Catch-all redirect */}
