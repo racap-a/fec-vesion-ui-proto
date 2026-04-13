@@ -7,6 +7,8 @@ import CreateCompany from './pages/admin/CreateCompany';
 import Ingestion from './pages/Ingestion';
 import Mapping from './pages/Mapping';
 import AIPnlValidation from './pages/AIPnlValidation';
+import SaisieExtraComptable from './pages/SaisieExtraComptable';
+import PnLDashboard from './pages/PnLDashboard';
 import Login from './pages/Login';
 import type { ReactNode } from 'react';
 
@@ -63,6 +65,8 @@ function App() {
           <Route path="ingestion" element={<Ingestion />} />
           <Route path="mapping" element={<Mapping />} />
           <Route path="ai-pnl-validation" element={<AIPnlValidation />} />
+          <Route path="saisie-extra" element={<SaisieExtraComptable />} />
+          <Route path="pl-dashboard" element={<PnLDashboard />} />
         </Route>
 
         {/* Catch-all redirect */}

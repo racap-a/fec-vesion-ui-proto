@@ -1,5 +1,5 @@
 import { NavLink, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, Building2, UploadCloud, Map, Database, PlusCircle, LogOut } from 'lucide-react';
+import { LayoutDashboard, Building2, UploadCloud, Map, Database, PlusCircle, LogOut, BarChart3 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { useAuth, type User } from '../context/AuthContext';
 
@@ -27,6 +27,7 @@ export const Sidebar = () => {
         { name: 'Create Company', icon: PlusCircle, href: '/admin/create-company', roles: ['Admin'] },
         { name: 'FEC Ingestion', icon: UploadCloud, href: '/ingestion' },
         { name: 'Account Mapping', icon: Map, href: '/mapping' },
+        { name: 'Compte de Résultat', icon: BarChart3, href: '/pl-dashboard' },
     ];
 
     return (
