@@ -103,7 +103,8 @@ const DroppableSubHeader = ({
 // --- Main Validation Component ---
 export default function AIPnlValidation() {
     const { user } = useAuth();
-    
+    const hasInitialized = React.useRef(false);
+
     // State
     const [nodes, setNodes] = useState<PnlNodeDto[]>([]);
     
@@ -132,14 +133,8 @@ export default function AIPnlValidation() {
             const res = await api.post(`/ai-mapping/extract-and-generate/${user.companyId}`);
             const data = res.data;
 
-            // Handle business logic failure indicated within a 200 response
-            if (data.pnlHierarchy?.isValid === false) {
-                setGenerationError(data.message || "La validation IA a échoué. Veuillez réessayer.");
-                return;
-            }
-
             // Attempt to parse standard hierarchy structure
-            if (data.pnlHierarchy?.hierarchy) {
+            if (data.pnlHierarchy?.hierarchy?.length > 0) {
                 setNodes(data.pnlHierarchy.hierarchy);
             } else if (Array.isArray(data)) {
                 // Fallback if backend directly returns the array
@@ -159,8 +154,10 @@ export default function AIPnlValidation() {
         }
     }, [user?.companyId]);
 
-    // Mount trigger
+    // Mount trigger — ref guard prevents StrictMode double-fire
     useEffect(() => {
+        if (hasInitialized.current) return;
+        hasInitialized.current = true;
         generateHierarchy();
     }, [generateHierarchy]);
 
