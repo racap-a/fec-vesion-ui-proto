@@ -69,6 +69,12 @@ export default function PnLDashboard() {
         }).format(amount ?? 0);
     };
 
+    const amountColor = (amount: number | undefined, isHeader: boolean): string => {
+        const val = amount ?? 0;
+        if (isHeader) return val < 0 ? 'text-red-600 font-black' : 'text-slate-900 font-black';
+        return val < 0 ? 'text-red-500' : val > 0 ? 'text-slate-700' : 'text-slate-400';
+    };
+
     const getRowPresentation = (line: PLLine) => {
         if (line.level5) return { label: line.level5, depth: 4 };
         if (line.level4) return { label: line.level4, depth: 3 };
@@ -194,11 +200,11 @@ export default function PnLDashboard() {
                                                     {Array.from({ length: 12 }, (_, i) => i + 1).map(monthKey => {
                                                         const amount = line.monthlyAmounts?.[monthKey.toString()];
                                                         return (
-                                                            <td 
-                                                                key={monthKey} 
+                                                            <td
+                                                                key={monthKey}
                                                                 className={clsx(
                                                                     "px-4 py-3 text-right tabular-nums",
-                                                                    isLevel1Header ? "font-bold text-slate-900" : "text-slate-600"
+                                                                    amountColor(amount, isLevel1Header)
                                                                 )}
                                                             >
                                                                 {formatAmount(amount)}
@@ -207,8 +213,8 @@ export default function PnLDashboard() {
                                                     })}
 
                                                     <td className={clsx(
-                                                        "px-6 py-3 text-right tabular-nums border-l border-slate-100/50",
-                                                        isLevel1Header ? "font-black text-slate-900" : "font-bold text-slate-800"
+                                                        "px-6 py-3 text-right tabular-nums border-l border-slate-200/60",
+                                                        amountColor(line.total, isLevel1Header)
                                                     )}>
                                                         {formatAmount(line.total)}
                                                     </td>

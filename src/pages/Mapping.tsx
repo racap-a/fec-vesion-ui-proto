@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { Search, ChevronRight, ChevronDown, GripVertical, Save, Folder, FileDigit, X, CheckCircle2, Loader2, AlertCircle } from 'lucide-react';
+import { Search, ChevronRight, ChevronDown, GripVertical, Save, Folder, FileDigit, X, CheckCircle2, Loader2, AlertCircle, AlertTriangle, Map as MapIcon } from 'lucide-react';
 import { clsx } from 'clsx';
 import { DndContext, DragOverlay, useDraggable, useDroppable, type DragStartEvent, type DragEndEvent } from '@dnd-kit/core';
 import api from '../services/api';
@@ -162,6 +162,8 @@ const Mapping = () => {
     const [isSaving, setIsSaving] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
+    const [saveError, setSaveError] = useState<string | null>(null);
 
     // For Drag Overlay
     const [activeAccount, setActiveAccount] = useState<UnmappedAccount | null>(null);
@@ -315,6 +317,8 @@ const Mapping = () => {
         if (!user?.companyId) return;
         setIsSaving(true);
         setError(null);
+        setSaveSuccess(null);
+        setSaveError(null);
 
         const payload: MappingPayloadDto[] = [];
 
@@ -351,10 +355,10 @@ const Mapping = () => {
                 mappings: payload,
                 triggerEngine: true
             });
-            alert("Mappings synchronisés avec succès");
+            setSaveSuccess(`${payload.length} mapping${payload.length > 1 ? 's' : ''} synchronisé${payload.length > 1 ? 's' : ''} avec succès.`);
         } catch (err) {
             console.error("Sync error:", err);
-            alert("Erreur lors de la synchronisation. Vos mappings locaux sont conservés.");
+            setSaveError("Erreur lors de la synchronisation. Vos mappings locaux sont conservés.");
         } finally {
             setIsSaving(false);
         }
@@ -386,24 +390,47 @@ const Mapping = () => {
         <DndContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
             <div className="h-full flex flex-col bg-slate-50">
                 {/* Header */}
-                <header className="bg-white border-b border-slate-200 px-8 py-4 flex items-center justify-between shrink-0">
-                    <div>
-                        <h1 className="text-xl font-bold text-slate-900">Account Mapping</h1>
-                        <p className="text-sm text-slate-500">Mapping {user?.companyName || 'Unknown Config'} directly to engine format.</p>
+                <header className="bg-white border-b border-slate-200 px-8 py-5 flex items-center justify-between shrink-0">
+                    <div className="flex items-center gap-4">
+                        <div className="bg-brand-primary/10 text-brand-primary p-3 rounded-xl border border-brand-primary/20">
+                            <MapIcon size={22} />
+                        </div>
+                        <div>
+                            <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Mapping PCG</h1>
+                            <p className="text-sm text-slate-500 mt-0.5">
+                                Association des comptes de&nbsp;
+                                <span className="font-semibold text-slate-700">{user?.companyName || '—'}</span>
+                                &nbsp;au plan comptable général.
+                            </p>
+                        </div>
                     </div>
                     <button
                         onClick={handleSyncClick}
                         disabled={isSaving}
-                        className="flex items-center gap-2 bg-brand-primary text-white px-5 py-2.5 rounded-lg text-sm font-bold shadow-sm hover:bg-brand-primary/90 transition-all disabled:opacity-75"
+                        className="flex items-center gap-2 bg-brand-primary text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-sm hover:bg-brand-primary/90 transition-all disabled:opacity-75"
                     >
                         {isSaving ? (
                             <div className="h-5 w-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                         ) : (
                             <Save size={18} />
                         )}
-                        Sync with Engine
+                        Synchroniser
                     </button>
                 </header>
+
+                {/* Notifications */}
+                {saveSuccess && (
+                    <div className="mx-8 mt-4 shrink-0 p-4 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center gap-3 text-emerald-700 font-medium shadow-sm">
+                        <CheckCircle2 size={18} className="shrink-0 text-emerald-500" />
+                        {saveSuccess}
+                    </div>
+                )}
+                {saveError && (
+                    <div className="mx-8 mt-4 shrink-0 p-4 bg-red-50 border border-red-200 rounded-xl flex items-center gap-3 text-red-700 font-medium shadow-sm">
+                        <AlertTriangle size={18} className="shrink-0" />
+                        {saveError}
+                    </div>
+                )}
 
                 <div className="flex-1 flex overflow-hidden p-6 gap-6">
 
@@ -442,7 +469,7 @@ const Mapping = () => {
                                     placeholder="Search by ID or name..."
                                     value={searchQuery}
                                     onChange={(e) => setSearchQuery(e.target.value)}
-                                    className="w-full pl-10 pr-4 py-2 bg-white rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-primary/20 border border-slate-200 transition-shadow"
+                                    className="w-full pl-10 pr-4 py-2 bg-white rounded-lg text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-primary/20 border border-slate-200 transition-shadow"
                                 />
                             </div>
                         </div>

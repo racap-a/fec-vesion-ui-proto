@@ -10,6 +10,8 @@ import AIPnlValidation from './pages/AIPnlValidation';
 import SaisieExtraComptable from './pages/SaisieExtraComptable';
 import PnLDashboard from './pages/PnLDashboard';
 import Login from './pages/Login';
+import ForgotPassword from './pages/ForgotPassword';
+import SetPassword from './pages/SetPassword';
 import type { ReactNode } from 'react';
 
 // Protected Route Component
@@ -34,6 +36,9 @@ function App() {
       <Routes>
         {/* Public Routes */}
         <Route path="/login" element={<Login />} />
+        <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/set-password" element={<SetPassword />} />
+        <Route path="/reset-password" element={<SetPassword />} />
 
         {/* Protected Application Routes */}
         <Route element={

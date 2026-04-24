@@ -5,7 +5,7 @@ import { UploadZone } from '../components/ingestion/UploadZone';
 import { OrchestrationStepper } from '../components/ingestion/OrchestrationStepper';
 import { LogTerminal } from '../components/ingestion/LogTerminal';
 import { HistoryTable } from '../components/ingestion/HistoryTable';
-import { AlertCircle, Play, RefreshCw, ArrowRight, CheckCircle2 } from 'lucide-react';
+import { AlertCircle, Play, RefreshCw, ArrowRight, CheckCircle2, UploadCloud } from 'lucide-react';
 import { clsx } from 'clsx';
 import { useNavigate } from 'react-router-dom';
 
@@ -163,29 +163,43 @@ const Ingestion = () => {
     };
 
     return (
-        <div className="p-8 max-w-6xl mx-auto space-y-8">
-            <header className="flex justify-between items-start">
-                <div>
-                    <h1 className="text-3xl font-bold text-slate-900">FEC Data Ingestion</h1>
-                    <p className="text-slate-500 mt-1">Upload and process accounting entries for <span className="font-semibold text-slate-700">{user?.companyName}</span>.</p>
+        <div className="h-full flex flex-col bg-slate-50">
+
+            {/* Header */}
+            <header className="bg-white border-b border-slate-200 px-8 py-5 shrink-0 z-10 flex items-center justify-between gap-4">
+                <div className="flex items-center gap-4">
+                    <div className="bg-brand-primary/10 text-brand-primary p-3 rounded-xl border border-brand-primary/20">
+                        <UploadCloud size={22} />
+                    </div>
+                    <div>
+                        <h1 className="text-2xl font-bold text-slate-900 tracking-tight">FEC Data Ingestion</h1>
+                        <p className="text-sm text-slate-500 mt-0.5">
+                            Traitez les écritures comptables de&nbsp;
+                            <span className="font-semibold text-slate-700">{user?.companyName}</span>.
+                        </p>
+                    </div>
                 </div>
                 {activeLog && (
                     <button
                         onClick={clearActiveLog}
-                        className="text-sm text-slate-500 hover:text-slate-800 underline"
+                        className="text-sm font-semibold text-slate-500 hover:text-slate-900 border border-slate-200 hover:border-slate-300 bg-white px-4 py-2 rounded-lg transition-all"
                     >
-                        Start New Upload
+                        Nouvel import
                     </button>
                 )}
             </header>
 
+            {/* Error banner */}
             {error && (
-                <div className="p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 flex items-center gap-3 animate-in fade-in slide-in-from-top-2">
-                    <AlertCircle size={20} />
+                <div className="mx-8 mt-6 shrink-0 p-4 bg-red-50 border border-red-200 rounded-xl text-red-700 flex items-center gap-3">
+                    <AlertCircle size={20} className="shrink-0" />
                     {error}
                 </div>
             )}
 
+            {/* Scrollable content */}
+            <div className="flex-1 overflow-y-auto p-8">
+            <div className="max-w-6xl mx-auto">
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                 {/* Left Panel: Active Workflow */}
                 <div className="lg:col-span-2 space-y-6">
@@ -298,6 +312,8 @@ const Ingestion = () => {
                         onRefresh={fetchHistory}
                     />
                 </div>
+            </div>
+            </div>
             </div>
         </div>
     );
