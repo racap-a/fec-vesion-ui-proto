@@ -1,5 +1,5 @@
 import { NavLink, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, Building2, UploadCloud, Map, Database, PlusCircle, LogOut, BarChart3, Sparkles, Calculator } from 'lucide-react';
+import { LayoutDashboard, Building2, UploadCloud, Map, Database, PlusCircle, LogOut, BarChart3, Sparkles, Calculator, UserCog } from 'lucide-react';
 import { clsx } from 'clsx';
 import { useAuth, type User } from '../context/AuthContext';
 
@@ -28,6 +28,7 @@ const NAV_SECTIONS: NavSection[] = [
         roles: ['Admin'],
         items: [
             { name: 'Sociétés', icon: Building2, href: '/admin/companies', roles: ['Admin'] },
+            { name: 'Utilisateurs', icon: UserCog, href: '/admin/users', roles: ['Admin'] },
             { name: 'Créer une société', icon: PlusCircle, href: '/admin/create-company', roles: ['Admin'] },
         ],
     },

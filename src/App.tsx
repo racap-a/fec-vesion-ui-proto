@@ -4,6 +4,7 @@ import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
 import Companies from './pages/admin/Companies';
 import CreateCompany from './pages/admin/CreateCompany';
+import Users from './pages/admin/Users';
 import Ingestion from './pages/Ingestion';
 import Mapping from './pages/Mapping';
 import AIPnlValidation from './pages/AIPnlValidation';
@@ -62,6 +63,14 @@ function App() {
             element={
               <ProtectedRoute allowedRoles={['Admin']}>
                 <CreateCompany />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="admin/users"
+            element={
+              <ProtectedRoute allowedRoles={['Admin']}>
+                <Users />
               </ProtectedRoute>
             }
           />
