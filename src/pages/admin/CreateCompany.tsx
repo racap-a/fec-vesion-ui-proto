@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Building2, Database, User, Mail, FolderPlus, Loader2, CheckCircle2, Server, HardDrive, ShieldCheck, AlertCircle } from 'lucide-react';
+import { Building2, Database, User, Mail, FolderPlus, Loader2, CheckCircle2, Server, HardDrive, ShieldCheck, AlertCircle, ArrowRight, Plus } from 'lucide-react';
 import api from '../../services/api';
 import { useNavigate } from 'react-router-dom';
 
@@ -19,6 +19,12 @@ const CreateCompany = () => {
     // Orchestration Simulation State
     const [processingStep, setProcessingStep] = useState(0);
     const [isProcessing, setIsProcessing] = useState(false);
+    const [successData, setSuccessData] = useState<{
+        companyName: string;
+        companyCode: string;
+        adminName: string;
+        adminEmail: string;
+    } | null>(null);
 
     const steps = [
         { title: 'Portal_V3 Registration', desc: 'Creating company record & IAM assignment', icon: ShieldCheck },
@@ -75,7 +81,13 @@ const CreateCompany = () => {
             // Success Transition
             setProcessingStep(4); // Done
             await new Promise(r => setTimeout(r, 500));
-            navigate('/admin/companies');
+            setSuccessData({
+                companyName: formData.companyName,
+                companyCode: formData.companyCode,
+                adminName: formData.adminName,
+                adminEmail: formData.adminEmail,
+            });
+            setIsProcessing(false);
 
         } catch (err: any) {
             console.error('Provisioning failed', err);
@@ -92,6 +104,82 @@ const CreateCompany = () => {
         }
         await simulateOrchestration();
     };
+
+    // Success screen
+    if (successData) {
+        return (
+            <div className="h-full flex flex-col items-center justify-center p-8 bg-slate-50">
+                <div className="bg-white p-8 rounded-2xl shadow-xl border border-slate-200 max-w-xl w-full">
+                    {/* Header */}
+                    <div className="flex flex-col items-center text-center mb-8">
+                        <div className="w-16 h-16 rounded-full bg-emerald-100 flex items-center justify-center mb-4">
+                            <CheckCircle2 size={32} className="text-emerald-600" />
+                        </div>
+                        <h2 className="text-2xl font-bold text-slate-900">Société créée avec succès</h2>
+                        <p className="text-slate-500 mt-1 text-sm">L'environnement a été provisionné en intégralité.</p>
+                    </div>
+
+                    {/* Company details */}
+                    <div className="bg-slate-50 rounded-xl border border-slate-200 p-5 mb-5 space-y-3">
+                        <div className="flex items-center justify-between">
+                            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Société</span>
+                            <span className="font-bold text-slate-900">{successData.companyName}</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Code</span>
+                            <span className="font-mono font-bold text-slate-700 bg-slate-200 px-2 py-0.5 rounded text-sm">{successData.companyCode}</span>
+                        </div>
+                    </div>
+
+                    {/* User provisioned */}
+                    <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-5 mb-5">
+                        <p className="text-xs font-semibold text-emerald-700 uppercase tracking-wide mb-3">Utilisateur provisionné</p>
+                        <div className="space-y-2">
+                            <div className="flex items-center gap-2 text-sm text-slate-700">
+                                <User size={14} className="text-slate-400 shrink-0" />
+                                <span className="font-medium">{successData.adminName}</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-sm text-slate-700">
+                                <Mail size={14} className="text-slate-400 shrink-0" />
+                                <span>{successData.adminEmail}</span>
+                            </div>
+                        </div>
+                        <div className="mt-3 pt-3 border-t border-emerald-200">
+                            <p className="text-xs text-emerald-700">
+                                Email de bienvenue envoyé — lien d'activation valable <span className="font-bold">72 heures</span>.
+                            </p>
+                            <p className="text-xs text-slate-500 mt-1">
+                                Si l'email n'a pas été reçu : Sociétés → <span className="font-mono">···</span> → Voir les utilisateurs → Renvoyer l'email.
+                            </p>
+                        </div>
+                    </div>
+
+                    {/* Actions */}
+                    <div className="flex gap-3">
+                        <button
+                            onClick={() => {
+                                setSuccessData(null);
+                                setFormData({ companyName: '', companyCode: '', adminEmail: '', adminName: '' });
+                                setProcessingStep(0);
+                                setError('');
+                            }}
+                            className="flex-1 px-4 py-2.5 rounded-lg border border-slate-200 text-sm font-medium text-slate-600 hover:bg-slate-50 transition-colors flex items-center justify-center gap-2"
+                        >
+                            <Plus size={15} />
+                            Créer une autre
+                        </button>
+                        <button
+                            onClick={() => navigate('/admin/companies')}
+                            className="flex-1 px-4 py-2.5 rounded-lg bg-brand-dark text-white text-sm font-bold hover:bg-slate-800 transition-colors flex items-center justify-center gap-2"
+                        >
+                            Voir toutes les sociétés
+                            <ArrowRight size={15} />
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
+    }
 
     // Render Processing UI
     if (isProcessing) {
