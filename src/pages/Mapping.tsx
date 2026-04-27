@@ -1,510 +1,631 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { Search, ChevronRight, ChevronDown, GripVertical, Save, Folder, FileDigit, X, CheckCircle2, Loader2, AlertCircle, AlertTriangle, Map as MapIcon } from 'lucide-react';
+import {
+    DndContext, DragOverlay, useDraggable, useDroppable,
+    type DragStartEvent, type DragEndEvent
+} from '@dnd-kit/core';
+import {
+    Folder, GripVertical, Save, Lock, Sparkles, Pencil,
+    AlertTriangle, ChevronDown, ChevronRight, RefreshCcw,
+    Map as MapIcon, Loader2, Play, CheckCircle2
+} from 'lucide-react';
 import { clsx } from 'clsx';
-import { DndContext, DragOverlay, useDraggable, useDroppable, type DragStartEvent, type DragEndEvent } from '@dnd-kit/core';
 import api from '../services/api';
 
-// --- Data Models ---
-export interface UnmappedAccount {
-    accountId: string;
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+type Phase = 'checking' | 'idle' | 'prefix' | 'ai' | 'loading' | 'ready' | 'saving' | 'saved';
+type MappingSource = 'auto' | 'ai' | 'manual';
+
+interface MappingEntry {
+    pcgCode: string;
+    pcgName: string;
+    source: MappingSource;
     accountName: string;
     balance: number;
 }
 
-export interface TreeNode {
-    id: string;
-    type: 'category' | 'pals_account' | 'mapped_account';
-    label: string;
-    children?: TreeNode[];
-    isOpen?: boolean;
-    // Only present if type === 'mapped_account'
-    sourceAccountId?: string;
-    balance?: number;
+interface FecAccount { accountId: string; accountName: string; balance: number; }
+
+interface ApiNode {
+    type: string; id: string; label: string;
+    mappingSource?: string; balance?: number;
+    children: ApiNode[];
 }
 
-export interface MappingPayloadDto {
-    sourceAccountId: string;
-    sourceAccountName: string;
-    targetPcgCode: string;
-    targetPcgName: string;
+interface TreeResponse {
+    tree: ApiNode[];
+    unmapped: FecAccount[];
+    totalFecAccounts: number;
+    mappedCount: number;
+    unmappedCount: number;
 }
 
-// --- Sub-components ---
+// ─── Source Badge ──────────────────────────────────────────────────────────────
 
-// 1. Draggable Account Item (Right Pane)
-const DraggableAccountItem = ({ account }: { account: UnmappedAccount }) => {
+const SourceBadge = ({ source }: { source: MappingSource }) => {
+    if (source === 'auto') return (
+        <span title="Mappage automatique (préfixe PCG)">
+            <Lock size={10} className="text-slate-400" />
+        </span>
+    );
+    if (source === 'ai') return (
+        <span title="Suggestion IA">
+            <Sparkles size={10} className="text-purple-400" />
+        </span>
+    );
+    return (
+        <span title="Mappage manuel">
+            <Pencil size={10} className="text-blue-400" />
+        </span>
+    );
+};
+
+// ─── FEC Chip (draggable) ──────────────────────────────────────────────────────
+
+const FecChip = ({ accountId, accountName, balance, source }: {
+    accountId: string; accountName: string; balance: number; source?: MappingSource;
+}) => {
     const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
-        id: account.accountId,
-        data: { account }
+        id: accountId,
+        data: { accountId, accountName, balance }
+    });
+
+    return (
+        <div
+            ref={setNodeRef} {...listeners} {...attributes}
+            className={clsx(
+                "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-xs font-mono cursor-grab active:cursor-grabbing transition-all select-none",
+                "bg-amber-50 border-amber-200 text-amber-900 hover:border-amber-400 hover:shadow-sm",
+                isDragging && "opacity-40 ring-2 ring-amber-400/50"
+            )}
+        >
+            <GripVertical size={11} className="text-amber-400 shrink-0" />
+            <span>{accountId}</span>
+            {source && <SourceBadge source={source} />}
+        </div>
+    );
+};
+
+// ─── PCG Drop Zone ─────────────────────────────────────────────────────────────
+
+const PcgDropZone = ({ pcgCode, pcgName, fecChildren, onUnmap }: {
+    pcgCode: string;
+    pcgName: string;
+    fecChildren: Array<{ id: string; name: string; balance: number; source: MappingSource }>;
+    onUnmap: (fecId: string) => void;
+}) => {
+    const { setNodeRef, isOver } = useDroppable({
+        id: `pcg-${pcgCode}`,
+        data: { pcgCode, pcgName }
     });
 
     return (
         <div
             ref={setNodeRef}
-            {...listeners}
-            {...attributes}
             className={clsx(
-                "flex items-center justify-between p-3 rounded-xl mb-2 border border-slate-200 shadow-sm cursor-grab active:cursor-grabbing transition-all bg-white",
-                "hover:border-brand-primary/50 hover:bg-brand-primary/5 hover:shadow-md",
-                isDragging && "opacity-50 ring-2 ring-brand-primary/50"
+                "rounded-lg border p-3 transition-colors min-h-[56px]",
+                isOver
+                    ? "border-blue-400 bg-blue-50 shadow-inner"
+                    : fecChildren.length > 0
+                        ? "border-blue-100 bg-slate-50"
+                        : "border-slate-100 bg-slate-50/50"
             )}
         >
-            <div className="flex items-center gap-3">
-                <div className="text-slate-400">
-                    <GripVertical size={16} />
-                </div>
-                <div>
-                    <div className="text-sm font-bold text-slate-800 font-mono">{account.accountId}</div>
-                    <div className="text-xs text-slate-500 truncate max-w-[160px]">{account.accountName}</div>
-                </div>
+            {/* PCG header */}
+            <div className="flex items-center gap-2 mb-2">
+                <span className="text-xs font-bold text-blue-700 font-mono bg-blue-100 px-1.5 py-0.5 rounded">
+                    {pcgCode}
+                </span>
+                <span className="text-xs text-slate-600 truncate">{pcgName}</span>
+                {fecChildren.length > 0 && (
+                    <span className="ml-auto text-xs text-slate-400 shrink-0">{fecChildren.length}</span>
+                )}
             </div>
-            <div className="text-xs font-mono font-medium text-slate-900 bg-slate-100 px-2 py-1 rounded">
-                {account.balance.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
-            </div>
+
+            {/* FEC chips */}
+            {fecChildren.length > 0 ? (
+                <div className="flex flex-wrap gap-1.5">
+                    {fecChildren.map(fec => (
+                        <FecChip
+                            key={fec.id}
+                            accountId={fec.id}
+                            accountName={fec.name}
+                            balance={fec.balance}
+                            source={fec.source}
+                        />
+                    ))}
+                </div>
+            ) : (
+                <p className={clsx(
+                    "text-xs text-slate-400 italic",
+                    isOver && "text-blue-500 font-medium not-italic"
+                )}>
+                    {isOver ? "Déposer ici" : "Aucun compte"}
+                </p>
+            )}
         </div>
     );
 };
 
-// 2. Droppable Tree Node (Left Pane)
-interface DroppableTreeNodeProps {
-    node: TreeNode;
-    level: number;
-    onToggle: (id: string) => void;
-    onUnmap: (id: string) => void;
-    renderChildren: (children: TreeNode[], level: number) => React.ReactNode;
-}
+// ─── Category Section ──────────────────────────────────────────────────────────
 
-const DroppableTreeNode: React.FC<DroppableTreeNodeProps> = ({ node, level, onToggle, onUnmap, renderChildren }) => {
-    // Only pals_account are valid drop targets
-    const isDroppable = node.type === 'pals_account';
+const CategorySection = ({ category, mappings, onUnmap }: {
+    category: ApiNode;
+    mappings: Record<string, MappingEntry>;
+    onUnmap: (fecId: string) => void;
+}) => {
+    const fecCount = useMemo(() => {
+        return category.children.reduce((total, pcg) => {
+            return total + pcg.children.filter(c => mappings[c.id]).length +
+                Object.values(mappings).filter(m => m.pcgCode === pcg.id).length;
+        }, 0);
+    }, [category, mappings]);
 
-    // We prefix the tree node ID so we don't collide with account IDs
-    const { setNodeRef, isOver } = useDroppable({
-        id: `node-${node.id}`,
-        data: { nodeId: node.id },
-        disabled: !isDroppable
+    // Auto-expand categories that have mapped accounts
+    const [isOpen, setIsOpen] = useState(fecCount > 0);
+
+    // Collect FEC accounts under each PCG from mappings
+    const pcgWithChildren = category.children.map(pcg => {
+        const children = Object.entries(mappings)
+            .filter(([, m]) => m.pcgCode === pcg.id)
+            .map(([fecId, m]) => ({ id: fecId, name: m.accountName, balance: m.balance, source: m.source }))
+            .sort((a, b) => a.id.localeCompare(b.id));
+        return { pcg, children };
     });
 
-    const isMappedAccount = node.type === 'mapped_account';
+    const totalMapped = pcgWithChildren.reduce((s, p) => s + p.children.length, 0);
 
     return (
-        <div className="select-none">
-            <div
-                ref={setNodeRef}
-                className={clsx(
-                    "flex justify-between items-center py-1.5 px-2 hover:bg-slate-100/10 rounded transition-colors border",
-                    isOver ? "border-brand-primary bg-brand-primary/10" : "border-transparent",
-                    level > 0 && "ml-4",
-                    node.type === 'pals_account' && "text-blue-200 font-semibold",
-                    isMappedAccount && "bg-brand-primary/10 border-brand-primary/20 rounded-md"
-                )}
+        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+            <button
+                onClick={() => setIsOpen(v => !v)}
+                className="w-full flex items-center gap-3 p-4 hover:bg-slate-50 transition-colors text-left"
             >
-                {/* Visual Label Area */}
-                <div
-                    className="flex items-center gap-2 cursor-pointer flex-1"
-                    onClick={() => node.children && onToggle(node.id)}
-                >
-                    <div className="w-4 h-4 flex items-center justify-center shrink-0">
-                        {node.children && !isMappedAccount && (
-                            node.isOpen ? <ChevronDown size={14} className="text-slate-500" /> : <ChevronRight size={14} className="text-slate-500" />
-                        )}
-                        {isMappedAccount && <CheckCircle2 size={12} className="text-brand-primary" />}
-                    </div>
-
-                    {!isMappedAccount && node.type === 'category' && <Folder size={14} className="text-amber-500 fill-amber-500/20" />}
-                    {!isMappedAccount && node.type === 'pals_account' && <FileDigit size={14} className="text-blue-400" />}
-
-                    <span className={clsx(
-                        "truncate",
-                        isMappedAccount ? "font-mono text-sm text-brand-primary ml-1 font-medium" : "text-sm",
-                        isOver && "font-bold text-white"
-                    )}>
-                        {node.label}
+                <Folder size={18} className="text-amber-500 fill-amber-100 shrink-0" />
+                <span className="font-bold text-slate-800 flex-1 truncate">{category.label}</span>
+                {totalMapped > 0 && (
+                    <span className="text-xs font-medium text-emerald-600 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
+                        {totalMapped} compte{totalMapped > 1 ? 's' : ''}
                     </span>
-
-                    {isMappedAccount && node.balance !== undefined && (
-                        <span className="text-xs font-mono text-slate-400 bg-slate-900/50 px-1.5 py-0.5 rounded ml-2">
-                            {node.balance.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' })}
-                        </span>
-                    )}
-                </div>
-
-                {/* Actions (Remove mapping) */}
-                {isMappedAccount && (
-                    <button
-                        onClick={() => node.sourceAccountId && onUnmap(node.sourceAccountId)}
-                        className="text-slate-500 hover:text-red-400 hover:bg-red-400/10 p-1 rounded transition-colors"
-                        title="Remove Mapping"
-                    >
-                        <X size={14} />
-                    </button>
                 )}
-            </div>
+                {isOpen
+                    ? <ChevronDown size={16} className="text-slate-400 shrink-0" />
+                    : <ChevronRight size={16} className="text-slate-400 shrink-0" />
+                }
+            </button>
 
-            {/* Recursively render children */}
-            {node.isOpen && node.children && (
-                <div className="border-l border-slate-700/50 ml-[1.15rem]">
-                    {renderChildren(node.children, level + 1)}
+            {isOpen && (
+                <div className="px-4 pb-4 space-y-2 border-t border-slate-100 pt-3">
+                    {pcgWithChildren.map(({ pcg, children }) => (
+                        <PcgDropZone
+                            key={pcg.id}
+                            pcgCode={pcg.id}
+                            pcgName={pcg.label.split(' - ').slice(1).join(' - ')}
+                            fecChildren={children}
+                            onUnmap={onUnmap}
+                        />
+                    ))}
                 </div>
             )}
         </div>
     );
 };
 
+// ─── Phase Progress ────────────────────────────────────────────────────────────
 
-// --- Main Component ---
-const Mapping = () => {
+const PhaseProgress = ({ phase, prefixResult, aiResult }: {
+    phase: Phase;
+    prefixResult: { matched: number; unmatched: number } | null;
+    aiResult: { suggested: number } | null;
+}) => {
+    const steps = [
+        {
+            id: 'prefix',
+            label: 'Mapping par préfixe PCG',
+            desc: prefixResult ? `${prefixResult.matched} comptes mappés automatiquement` : 'Analyse des numéros de comptes...',
+            done: !!prefixResult,
+            active: phase === 'prefix',
+        },
+        {
+            id: 'ai',
+            label: 'Complétion par IA (Gemini)',
+            desc: phase === 'ai'
+                ? 'Démarrage en arrière-plan...'
+                : prefixResult
+                    ? `${prefixResult.unmatched} comptes envoyés à l'IA`
+                    : 'En attente...',
+            done: phase === 'loading' || phase === 'ready' || phase === 'saved',
+            active: phase === 'ai',
+        },
+        {
+            id: 'loading',
+            label: 'Chargement de la vue',
+            desc: 'Construction de l\'arborescence...',
+            done: phase === 'ready' || phase === 'saved',
+            active: phase === 'loading',
+        },
+    ];
+
+    return (
+        <div className="h-full flex items-center justify-center bg-slate-50">
+            <div className="bg-white rounded-2xl p-8 shadow-sm border border-slate-200 w-full max-w-md">
+                <div className="flex items-center gap-3 mb-6">
+                    <div className="bg-brand-primary/10 p-3 rounded-xl">
+                        <MapIcon size={22} className="text-brand-primary" />
+                    </div>
+                    <div>
+                        <h2 className="font-bold text-slate-900">Mapping automatique en cours</h2>
+                        <p className="text-xs text-slate-500 mt-0.5">Ne fermez pas cette page</p>
+                    </div>
+                </div>
+                <div className="space-y-4">
+                    {steps.map(step => (
+                        <div key={step.id} className="flex items-start gap-3">
+                            <div className="shrink-0 mt-0.5">
+                                {step.done ? (
+                                    <CheckCircle2 size={18} className="text-emerald-500" />
+                                ) : step.active ? (
+                                    <Loader2 size={18} className="text-brand-primary animate-spin" />
+                                ) : (
+                                    <div className="w-[18px] h-[18px] rounded-full border-2 border-slate-200" />
+                                )}
+                            </div>
+                            <div>
+                                <p className={clsx(
+                                    "text-sm font-semibold",
+                                    step.done ? "text-emerald-700" : step.active ? "text-slate-900" : "text-slate-400"
+                                )}>{step.label}</p>
+                                <p className="text-xs text-slate-500 mt-0.5">{step.desc}</p>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// ─── Main Component ────────────────────────────────────────────────────────────
+
+export default function Mapping() {
     const { user } = useAuth();
-    const [treeData, setTreeData] = useState<TreeNode[]>([]);
-    const [unmappedAccounts, setUnmappedAccounts] = useState<UnmappedAccount[]>([]);
-    const [searchQuery, setSearchQuery] = useState('');
-    const [isSaving, setIsSaving] = useState(false);
-    const [isLoading, setIsLoading] = useState(true);
+    const companyId = user?.companyId;
+
+    const [phase, setPhase] = useState<Phase>('checking');
+    const [treeResponse, setTreeResponse] = useState<TreeResponse | null>(null);
+    const [mappings, setMappings] = useState<Record<string, MappingEntry>>({});
+    const [prefixResult, setPrefixResult] = useState<{ matched: number; unmatched: number } | null>(null);
+    const [aiResult, setAiResult] = useState<{ suggested: number } | null>(null);
+    const [activeDrag, setActiveDrag] = useState<{ accountId: string; accountName: string } | null>(null);
+    const [saveMsg, setSaveMsg] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
-    const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
-    const [saveError, setSaveError] = useState<string | null>(null);
+    const [aiRunning, setAiRunning] = useState(false);
 
-    // For Drag Overlay
-    const [activeAccount, setActiveAccount] = useState<UnmappedAccount | null>(null);
+    // Load tree from API and populate local mappings map
+    const loadTree = useCallback(async () => {
+        if (!companyId) return;
+        setPhase('loading');
+        try {
+            const res = await api.get<TreeResponse>(`/mapping/${companyId}/tree`);
+            const data = res.data;
+            setTreeResponse(data);
 
-    // --- Data Fetching ---
-    useEffect(() => {
-        const fetchData = async () => {
-            if (!user?.companyId) return;
-            
-            setIsLoading(true);
-            setError(null);
-            
-            try {
-                // Run in parallel
-                const [treeRes, unmappedRes] = await Promise.all([
-                    api.get(`/mapping/${user.companyId}/pcg-tree`),
-                    api.get(`/mapping/${user.companyId}/unmapped`)
-                ]);
-                
-                setTreeData(treeRes.data.tree);
-                
-                const accounts = unmappedRes.data.accounts.map((acc: any) => ({
-                    accountId: acc.accountId,
-                    accountName: acc.accountName,
-                    balance: acc.balance
-                }));
-                setUnmappedAccounts(accounts);
-            } catch (err) {
-                console.error("Failed to load mapping data:", err);
-                setError("Impossible de charger la structure PCG.");
-            } finally {
-                setIsLoading(false);
-            }
-        };
-
-        fetchData();
-    }, [user?.companyId]);
-
-    // --- Interaction Handlers ---
-
-    // Toggle node open/closed
-    const handleToggleNode = (nodeId: string) => {
-        const toggleRecursive = (nodes: TreeNode[]): TreeNode[] => {
-            return nodes.map(node => {
-                if (node.id === nodeId) {
-                    return { ...node, isOpen: !node.isOpen };
-                }
-                if (node.children) {
-                    return { ...node, children: toggleRecursive(node.children) };
-                }
-                return node;
-            });
-        };
-        setTreeData(toggleRecursive(treeData));
-    };
-
-    // Unmap an account (move from Left to Right)
-    const handleUnmap = (sourceAccountId: string) => {
-        let removedNode: TreeNode | undefined;
-
-        // 1. Remove from Tree recursively
-        const removeRecursive = (nodes: TreeNode[]): TreeNode[] => {
-            return nodes.map(node => {
-                if (node.children) {
-                    // Check if child is the one being removed
-                    const targetIndex = node.children.findIndex(c => c.sourceAccountId === sourceAccountId);
-                    if (targetIndex > -1) {
-                        removedNode = node.children[targetIndex];
-                        return {
-                            ...node,
-                            children: node.children.filter(c => c.sourceAccountId !== sourceAccountId)
+            // Populate flat mappings map from API tree
+            const flat: Record<string, MappingEntry> = {};
+            data.tree.forEach(category => {
+                category.children.forEach(pcg => {
+                    pcg.children.forEach(fec => {
+                        flat[fec.id] = {
+                            pcgCode: pcg.id,
+                            pcgName: pcg.label.replace(`${pcg.id} - `, ''),
+                            source: (fec.mappingSource as MappingSource) || 'auto',
+                            accountName: fec.label.replace(`${fec.id} - `, ''),
+                            balance: fec.balance ?? 0,
                         };
-                    }
-                    // Otherwise continue deeper
-                    return { ...node, children: removeRecursive(node.children) };
-                }
-                return node;
-            });
-        };
-
-        const newTreeData = removeRecursive(treeData);
-
-        if (removedNode && removedNode.sourceAccountId && removedNode.balance !== undefined) {
-            // 2. Add back to Unmapped list
-            const restoredAccount: UnmappedAccount = {
-                accountId: removedNode.sourceAccountId,
-                // Simple restoration of name by stripping ID, ideally store full name in TreeNode
-                accountName: removedNode.label.replace(`${removedNode.sourceAccountId} - `, ''),
-                balance: removedNode.balance
-            };
-
-            setTreeData(newTreeData);
-            setUnmappedAccounts(prev => [...prev, restoredAccount].sort((a, b) => a.accountId.localeCompare(b.accountId)));
-        }
-    };
-
-    // --- Drag and Drop Logic ---
-    const handleDragStart = (event: DragStartEvent) => {
-        const { active } = event;
-        const account = active.data.current?.account as UnmappedAccount;
-        if (account) {
-            setActiveAccount(account);
-        }
-    };
-
-    const handleDragEnd = (event: DragEndEvent) => {
-        const { active, over } = event;
-        setActiveAccount(null);
-
-        // If dropped outside a valid droppable area
-        if (!over) return;
-
-        const accountId = active.id as string;
-        const targetNodeId = (over.id as string).replace('node-', ''); // Extract clean ID
-        const account = active.data.current?.account as UnmappedAccount;
-
-        if (!account) return;
-
-        // 1. Remove from Right Pane
-        setUnmappedAccounts(prev => prev.filter(a => a.accountId !== accountId));
-
-        // 2. Add as mapped_account to Target Node in Left Pane
-        const addToTreeRecursive = (nodes: TreeNode[]): TreeNode[] => {
-            return nodes.map(node => {
-                if (node.id === targetNodeId) {
-                    const newMappedNode: TreeNode = {
-                        id: `mapped-${account.accountId}`, // Unique ID for the tree node
-                        type: 'mapped_account',
-                        label: `${account.accountId} - ${account.accountName}`,
-                        sourceAccountId: account.accountId,
-                        balance: account.balance
-                    };
-                    return {
-                        ...node,
-                        children: [...(node.children || []), newMappedNode],
-                        isOpen: true // Auto-expand to show the drop
-                    };
-                }
-                if (node.children) {
-                    return { ...node, children: addToTreeRecursive(node.children) };
-                }
-                return node;
-            });
-        };
-
-        setTreeData(addToTreeRecursive(treeData));
-    };
-
-    // --- API / Save Logic ---
-    const handleSyncClick = async () => {
-        if (!user?.companyId) return;
-        setIsSaving(true);
-        setError(null);
-        setSaveSuccess(null);
-        setSaveError(null);
-
-        const payload: MappingPayloadDto[] = [];
-
-        // Recursive extractor
-        const extractMappings = (nodes: TreeNode[], parentPcgCode: string | null = null, parentPcgName: string | null = null) => {
-            nodes.forEach(node => {
-                // Determine the current PCG target (only pals_account nodes act as the target)
-                // If it's a category, we pass down whatever the parent's target was (usually none)
-                const currentTargetId = node.type === 'pals_account' ? node.id : parentPcgCode;
-                const currentTargetName = node.type === 'pals_account' ? node.label : parentPcgName;
-
-                if (node.type === 'mapped_account' && node.sourceAccountId && currentTargetId && currentTargetName) {
-                    // We extract the pure account name by stripping the `accountId - ` prefix that was added
-                    const sourceAccName = node.label.replace(`${node.sourceAccountId} - `, '');
-                    
-                    payload.push({
-                        sourceAccountId: node.sourceAccountId,
-                        sourceAccountName: sourceAccName,
-                        targetPcgCode: currentTargetId,
-                        targetPcgName: currentTargetName
                     });
-                }
-
-                if (node.children) {
-                    extractMappings(node.children, currentTargetId, currentTargetName);
-                }
+                });
             });
-        };
+            setMappings(flat);
+            setPhase('ready');
+        } catch {
+            setError('Impossible de charger l\'arborescence.');
+            setPhase('idle');
+        }
+    }, [companyId]);
 
-        extractMappings(treeData);
+    // On mount: check if mappings already exist
+    useEffect(() => {
+        if (!companyId) return;
+        api.get<TreeResponse>(`/mapping/${companyId}/tree`).then(res => {
+            if (res.data.mappedCount > 0) {
+                setTreeResponse(res.data);
+                const flat: Record<string, MappingEntry> = {};
+                res.data.tree.forEach(cat => {
+                    cat.children.forEach(pcg => {
+                        pcg.children.forEach(fec => {
+                            flat[fec.id] = {
+                                pcgCode: pcg.id,
+                                pcgName: pcg.label.replace(`${pcg.id} - `, ''),
+                                source: (fec.mappingSource as MappingSource) || 'auto',
+                                accountName: fec.label.replace(`${fec.id} - `, ''),
+                                balance: fec.balance ?? 0,
+                            };
+                        });
+                    });
+                });
+                setMappings(flat);
+                setPhase('ready');
+            } else {
+                setPhase('idle');
+            }
+        }).catch(() => setPhase('idle'));
+    }, [companyId]);
+
+    // Run full auto-mapping pipeline: prefix → fire ai in background → load tree immediately
+    const startAutoMapping = useCallback(async () => {
+        if (!companyId) return;
+        setError(null);
+        setPrefixResult(null);
+        setAiResult(null);
+        setAiRunning(false);
 
         try {
-            await api.post(`/mapping/${user.companyId}/sync`, {
-                mappings: payload,
-                triggerEngine: true
-            });
-            setSaveSuccess(`${payload.length} mapping${payload.length > 1 ? 's' : ''} synchronisé${payload.length > 1 ? 's' : ''} avec succès.`);
-        } catch (err) {
-            console.error("Sync error:", err);
-            setSaveError("Erreur lors de la synchronisation. Vos mappings locaux sont conservés.");
-        } finally {
-            setIsSaving(false);
+            // Step 1: prefix-match (fast, wait for it)
+            setPhase('prefix');
+            const pRes = await api.post(`/mapping/${companyId}/prefix-match`);
+            setPrefixResult({ matched: pRes.data.matched, unmatched: pRes.data.unmatched });
+
+            // Step 2: fire ai-suggest in background — backend returns 202 immediately
+            if (pRes.data.unmatched > 0) {
+                setPhase('ai');
+                await api.post(`/mapping/${companyId}/ai-suggest`); // returns 202 instantly
+                setAiRunning(true);
+            }
+
+            // Step 3: load tree with whatever is mapped so far
+            await loadTree();
+            // If nothing is unmapped after tree load, AI finished — dismiss banner
+            setAiRunning(prev => prev && unmappedAccounts.length > 0);
+        } catch (err: any) {
+            setError(err.response?.data?.message || 'Erreur lors du mapping automatique.');
+            setPhase('idle');
+        }
+    }, [companyId, loadTree]);
+
+    // Drag handlers
+    const handleDragStart = (e: DragStartEvent) => {
+        const data = e.active.data.current as any;
+        setActiveDrag({ accountId: e.active.id as string, accountName: data?.accountName ?? '' });
+    };
+
+    const handleDragEnd = (e: DragEndEvent) => {
+        setActiveDrag(null);
+        const { active, over } = e;
+        if (!over) return;
+
+        const fecId = active.id as string;
+        const data = over.data.current as any;
+        if (!data?.pcgCode) return;
+
+        // If dropped on same PCG, no change
+        if (mappings[fecId]?.pcgCode === data.pcgCode) return;
+
+        const activeData = active.data.current as any;
+
+        setMappings(prev => ({
+            ...prev,
+            [fecId]: {
+                pcgCode: data.pcgCode,
+                pcgName: data.pcgName,
+                source: 'manual',
+                accountName: prev[fecId]?.accountName ?? activeData?.accountName ?? '',
+                balance: prev[fecId]?.balance ?? activeData?.balance ?? 0,
+            }
+        }));
+    };
+
+    // Save
+    const handleSave = async () => {
+        if (!companyId) return;
+        setPhase('saving');
+        setSaveMsg(null);
+        try {
+            const payload = Object.entries(mappings).map(([fecId, m]) => ({
+                sourceAccountId: fecId,
+                sourceAccountName: m.accountName,
+                targetPcgCode: m.pcgCode,
+                targetPcgName: m.pcgName,
+                mappingSource: m.source,
+            }));
+            const res = await api.post(`/mapping/${companyId}/save-tree`, { mappings: payload });
+            setSaveMsg(`${res.data.saved} mappings enregistrés.`);
+            setPhase('saved');
+        } catch {
+            setError('Erreur lors de l\'enregistrement.');
+            setPhase('ready');
         }
     };
 
-    // --- Render Helpers ---
+    // Unmapped FEC accounts (in treeResponse.unmapped, not in local mappings map)
+    const unmappedAccounts = useMemo(() => {
+        if (!treeResponse) return [];
+        return treeResponse.unmapped.filter(a => !mappings[a.accountId]);
+    }, [treeResponse, mappings]);
 
-    // Recursive renderer for the Left Pane
-    const renderTree = (nodes: TreeNode[], level = 0): React.ReactNode => {
-        return nodes.map(node => (
-            <DroppableTreeNode
-                key={node.id}
-                node={node}
-                level={level}
-                onToggle={handleToggleNode}
-                onUnmap={handleUnmap}
-                renderChildren={renderTree}
-            />
-        ));
-    };
+    const mappedCount = Object.keys(mappings).length;
+    const totalCount = treeResponse?.totalFecAccounts ?? 0;
 
-    // Filtered Right Pane
-    const filteredAccounts = unmappedAccounts.filter(acc =>
-        acc.accountId.includes(searchQuery) ||
-        acc.accountName.toLowerCase().includes(searchQuery.toLowerCase())
-    );
+    // ── Render phases ────────────────────────────────────────────────────────
+
+    if (phase === 'checking') {
+        return (
+            <div className="h-full flex items-center justify-center bg-slate-50">
+                <Loader2 size={28} className="text-brand-primary animate-spin" />
+            </div>
+        );
+    }
+
+    if (phase === 'prefix' || phase === 'ai' || phase === 'loading') {
+        return <PhaseProgress phase={phase} prefixResult={prefixResult} aiResult={aiResult} />;
+    }
+
+    if (phase === 'idle') {
+        return (
+            <div className="h-full flex items-center justify-center bg-slate-50 p-8">
+                <div className="bg-white rounded-2xl p-10 shadow-sm border border-slate-200 max-w-md w-full text-center">
+                    <div className="bg-brand-primary/10 p-4 rounded-2xl inline-flex mb-6">
+                        <MapIcon size={32} className="text-brand-primary" />
+                    </div>
+                    <h2 className="text-xl font-bold text-slate-900 mb-2">Mapping PCG automatique</h2>
+                    <p className="text-slate-500 text-sm mb-8">
+                        Le système va mapper vos comptes FEC au Plan Comptable Général par correspondance de préfixe, puis l'IA complétera les comptes sans correspondance directe.
+                    </p>
+                    {error && (
+                        <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 mb-4">{error}</p>
+                    )}
+                    <button
+                        onClick={startAutoMapping}
+                        className="flex items-center gap-2 mx-auto bg-brand-primary text-white px-8 py-3.5 rounded-xl font-bold hover:bg-brand-primary/90 hover:-translate-y-0.5 transition-all shadow-lg"
+                    >
+                        <Play size={18} />
+                        Lancer le mapping automatique
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
+    // ── Ready / Saved ────────────────────────────────────────────────────────
 
     return (
         <DndContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
             <div className="h-full flex flex-col bg-slate-50">
+
                 {/* Header */}
-                <header className="bg-white border-b border-slate-200 px-8 py-5 flex items-center justify-between shrink-0">
+                <header className="bg-white border-b border-slate-200 px-8 py-4 shrink-0 flex items-center justify-between">
                     <div className="flex items-center gap-4">
-                        <div className="bg-brand-primary/10 text-brand-primary p-3 rounded-xl border border-brand-primary/20">
-                            <MapIcon size={22} />
+                        <div className="bg-brand-primary/10 p-2.5 rounded-xl">
+                            <MapIcon size={20} className="text-brand-primary" />
                         </div>
                         <div>
-                            <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Mapping PCG</h1>
-                            <p className="text-sm text-slate-500 mt-0.5">
-                                Association des comptes de&nbsp;
-                                <span className="font-semibold text-slate-700">{user?.companyName || '—'}</span>
-                                &nbsp;au plan comptable général.
+                            <h1 className="text-xl font-bold text-slate-900">Mapping PCG</h1>
+                            <p className="text-xs text-slate-500 mt-0.5">
+                                {mappedCount} / {totalCount} comptes mappés
+                                {unmappedAccounts.length > 0 && (
+                                    <span className="text-amber-600 ml-2">· {unmappedAccounts.length} sans correspondance</span>
+                                )}
                             </p>
                         </div>
                     </div>
-                    <button
-                        onClick={handleSyncClick}
-                        disabled={isSaving}
-                        className="flex items-center gap-2 bg-brand-primary text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-sm hover:bg-brand-primary/90 transition-all disabled:opacity-75"
-                    >
-                        {isSaving ? (
-                            <div className="h-5 w-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                        ) : (
-                            <Save size={18} />
-                        )}
-                        Synchroniser
-                    </button>
+                    <div className="flex items-center gap-2">
+                        {/* Legend */}
+                        <div className="hidden lg:flex items-center gap-3 text-xs text-slate-500 mr-4">
+                            <span className="flex items-center gap-1"><Lock size={11} /> Auto</span>
+                            <span className="flex items-center gap-1"><Sparkles size={11} className="text-purple-400" /> IA</span>
+                            <span className="flex items-center gap-1"><Pencil size={11} className="text-blue-400" /> Manuel</span>
+                        </div>
+                        <button
+                            onClick={startAutoMapping}
+                            className="flex items-center gap-1.5 px-3 py-2 text-sm text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+                        >
+                            <RefreshCcw size={14} />
+                            Relancer
+                        </button>
+                    </div>
                 </header>
 
                 {/* Notifications */}
-                {saveSuccess && (
-                    <div className="mx-8 mt-4 shrink-0 p-4 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center gap-3 text-emerald-700 font-medium shadow-sm">
-                        <CheckCircle2 size={18} className="shrink-0 text-emerald-500" />
-                        {saveSuccess}
+                {saveMsg && (
+                    <div className="mx-8 mt-4 shrink-0 p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center gap-2 text-emerald-700 text-sm font-medium">
+                        <CheckCircle2 size={16} className="text-emerald-500 shrink-0" />
+                        {saveMsg}
                     </div>
                 )}
-                {saveError && (
-                    <div className="mx-8 mt-4 shrink-0 p-4 bg-red-50 border border-red-200 rounded-xl flex items-center gap-3 text-red-700 font-medium shadow-sm">
-                        <AlertTriangle size={18} className="shrink-0" />
-                        {saveError}
+                {error && (
+                    <div className="mx-8 mt-4 shrink-0 p-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">
+                        {error}
+                    </div>
+                )}
+                {aiRunning && (
+                    <div className="mx-8 mt-4 shrink-0 p-3 bg-purple-50 border border-purple-200 rounded-xl flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2 text-purple-700 text-sm">
+                            <Loader2 size={15} className="animate-spin shrink-0" />
+                            <span>L'IA complète le mapping en arrière-plan — actualisez dans 1-2 min pour voir les résultats.</span>
+                        </div>
+                        <button
+                            onClick={async () => { await loadTree(); setAiRunning(false); }}
+                            className="shrink-0 flex items-center gap-1.5 text-xs font-semibold text-purple-700 bg-purple-100 hover:bg-purple-200 px-3 py-1.5 rounded-lg transition-colors"
+                        >
+                            <RefreshCcw size={12} />
+                            Actualiser
+                        </button>
                     </div>
                 )}
 
-                <div className="flex-1 flex overflow-hidden p-6 gap-6">
+                {/* Scrollable tree */}
+                <div className="flex-1 overflow-y-auto p-8 pb-28 custom-scrollbar">
+                    <div className="max-w-5xl mx-auto space-y-3">
 
-                    {/* LEFT PANE: Target Tree */}
-                    <div className="w-2/3 flex flex-col bg-slate-900 rounded-2xl shadow-xl overflow-hidden text-slate-300">
-                        <div className="p-4 bg-slate-800/80 border-b border-slate-700 flex justify-between items-center text-xs font-bold uppercase tracking-wider text-slate-400">
-                            <span>Target Structure (PCG)</span>
-                            <span className="text-brand-primary border border-brand-primary/30 bg-brand-primary/10 px-2 py-0.5 rounded">
-                                Valid Drop Zones: Folders & PCG Codes
-                            </span>
-                        </div>
-                        <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
-                            {isLoading ? (
-                                <div className="flex flex-col items-center justify-center p-12 text-slate-500">
-                                    <Loader2 size={32} className="animate-spin mb-4" />
-                                    <p className="text-sm font-medium">Chargement des données...</p>
+                        {/* Unmapped section — top, needs attention */}
+                        {unmappedAccounts.length > 0 && (
+                            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-4">
+                                <h3 className="flex items-center gap-2 text-sm font-bold text-amber-800 mb-3">
+                                    <AlertTriangle size={15} />
+                                    {unmappedAccounts.length} compte{unmappedAccounts.length > 1 ? 's' : ''} sans correspondance — glissez-les vers un compte PCG
+                                </h3>
+                                <div className="flex flex-wrap gap-2">
+                                    {unmappedAccounts.map(fec => (
+                                        <FecChip
+                                            key={fec.accountId}
+                                            accountId={fec.accountId}
+                                            accountName={fec.accountName}
+                                            balance={fec.balance}
+                                        />
+                                    ))}
                                 </div>
-                            ) : error ? (
-                                <div className="bg-red-900/40 text-red-400 border border-red-900 rounded-lg p-4 flex items-center gap-3">
-                                    <AlertCircle size={20} />
-                                    {error}
-                                </div>
-                            ) : (
-                                renderTree(treeData)
-                            )}
-                        </div>
+                            </div>
+                        )}
+
+                        {/* 3-layer tree */}
+                        {treeResponse?.tree.map(category => (
+                            <CategorySection
+                                key={category.id}
+                                category={category}
+                                mappings={mappings}
+                                onUnmap={() => {}} // reassign only, no unmap
+                            />
+                        ))}
                     </div>
+                </div>
 
-                    {/* RIGHT PANE: Unmapped Source */}
-                    <div className="w-1/3 flex flex-col bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                        <div className="p-4 border-b border-slate-100 bg-slate-50">
-                            <div className="relative">
-                                <Search className="absolute left-3 top-2.5 text-slate-400" size={16} />
-                                <input
-                                    type="text"
-                                    placeholder="Search by ID or name..."
-                                    value={searchQuery}
-                                    onChange={(e) => setSearchQuery(e.target.value)}
-                                    className="w-full pl-10 pr-4 py-2 bg-white rounded-lg text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-primary/20 border border-slate-200 transition-shadow"
-                                />
-                            </div>
-                        </div>
-
-                        <div className="flex-1 overflow-y-auto p-4 custom-scrollbar bg-slate-50/50">
-                            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3 px-1">
-                                Unmapped Source ({filteredAccounts.length})
-                            </div>
-
-                            {filteredAccounts.map((account) => (
-                                <DraggableAccountItem key={account.accountId} account={account} />
-                            ))}
-
-                            {filteredAccounts.length === 0 && (
-                                <div className="mt-12 text-center text-slate-400">
-                                    <CheckCircle2 size={32} className="mx-auto mb-2 opacity-50 text-emerald-500" />
-                                    <p className="font-semibold text-slate-600">All items mapped!</p>
-                                    <p className="text-sm">Or no items match your search.</p>
-                                </div>
-                            )}
-                        </div>
+                {/* Fixed save bar */}
+                <div className="absolute bottom-0 left-0 right-0 p-5 bg-white/90 backdrop-blur-sm border-t border-slate-200 z-20">
+                    <div className="max-w-5xl mx-auto flex justify-end">
+                        <button
+                            onClick={handleSave}
+                            disabled={phase === 'saving' || phase === 'saved' || mappedCount === 0}
+                            className="flex items-center gap-2 bg-brand-primary text-white px-8 py-3 rounded-xl font-bold shadow-lg hover:bg-brand-primary/90 hover:-translate-y-0.5 transition-all disabled:opacity-60 disabled:cursor-not-allowed disabled:transform-none"
+                        >
+                            {phase === 'saving'
+                                ? <Loader2 size={18} className="animate-spin" />
+                                : <Save size={18} />
+                            }
+                            {phase === 'saving' ? 'Enregistrement...' : 'Enregistrer le mapping'}
+                        </button>
                     </div>
                 </div>
             </div>
 
-            {/* Drag Overlay for smooth visuals while dragging */}
-            <DragOverlay>
-                {activeAccount ? (
-                    <div className="opacity-90 scale-105 rotate-2 shadow-2xl">
-                        <DraggableAccountItem account={activeAccount} />
+            {/* Drag ghost */}
+            <DragOverlay dropAnimation={{ duration: 200, easing: 'ease' }}>
+                {activeDrag && (
+                    <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-xs font-mono bg-slate-900 border-brand-primary text-white shadow-2xl scale-105 rotate-2">
+                        <GripVertical size={11} />
+                        {activeDrag.accountId}
                     </div>
-                ) : null}
+                )}
             </DragOverlay>
         </DndContext>
     );
-};
-
-export default Mapping;
+}

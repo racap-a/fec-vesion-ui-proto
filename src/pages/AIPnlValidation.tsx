@@ -1,14 +1,14 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { 
-    DndContext, 
-    DragOverlay, 
-    useDraggable, 
-    useDroppable, 
-    type DragStartEvent, 
-    type DragEndEvent 
+import {
+    DndContext,
+    DragOverlay,
+    useDraggable,
+    useDroppable,
+    type DragStartEvent,
+    type DragEndEvent
 } from '@dnd-kit/core';
-import { Sparkles, Save, GripVertical, AlertTriangle, RefreshCcw, CheckCircle2, FileDigit } from 'lucide-react';
+import { Sparkles, Save, GripVertical, AlertTriangle, RefreshCcw, CheckCircle2, FileDigit, Play } from 'lucide-react';
 import { clsx } from 'clsx';
 import api from '../services/api';
 
@@ -103,7 +103,6 @@ const DroppableSubHeader = ({
 // --- Main Validation Component ---
 export default function AIPnlValidation() {
     const { user } = useAuth();
-    const hasInitialized = React.useRef(false);
 
     // State
     const [nodes, setNodes] = useState<PnlNodeDto[]>([]);
@@ -153,13 +152,6 @@ export default function AIPnlValidation() {
             setIsGenerating(false);
         }
     }, [user?.companyId]);
-
-    // Mount trigger — ref guard prevents StrictMode double-fire
-    useEffect(() => {
-        if (hasInitialized.current) return;
-        hasInitialized.current = true;
-        generateHierarchy();
-    }, [generateHierarchy]);
 
     // Grouping for Display
     const groupedNodes = useMemo(() => {
@@ -264,6 +256,27 @@ export default function AIPnlValidation() {
 
     // --- Renders ---
 
+    if (!isGenerating && !generationError && nodes.length === 0) {
+        return (
+            <div className="h-full flex flex-col items-center justify-center bg-slate-50">
+                <div className="bg-white p-10 rounded-2xl shadow-sm border border-slate-200 flex flex-col items-center max-w-md text-center">
+                    <div className="bg-brand-primary/10 text-brand-primary p-4 rounded-2xl border border-brand-primary/20 mb-6">
+                        <Sparkles size={32} />
+                    </div>
+                    <h2 className="text-xl font-bold text-slate-800 mb-2">Validation IA P&L</h2>
+                    <p className="text-slate-500 mb-8">Lancez l'analyse pour générer la hiérarchie P&L à partir de votre balance comptable.</p>
+                    <button
+                        onClick={generateHierarchy}
+                        className="flex items-center gap-2 bg-brand-primary text-white px-8 py-3.5 rounded-xl text-sm font-bold shadow-lg hover:bg-brand-primary/90 hover:-translate-y-0.5 transition-all"
+                    >
+                        <Play size={18} />
+                        Lancer l'analyse IA
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
     if (isGenerating) {
         return (
             <div className="h-full flex flex-col items-center justify-center bg-slate-50">
@@ -311,11 +324,18 @@ export default function AIPnlValidation() {
                         <div>
                             <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Validation IA P&L</h1>
                             <p className="text-sm text-slate-500 mt-0.5 flex items-center gap-2">
-                                <FileDigit size={14} /> 
+                                <FileDigit size={14} />
                                 Glissez et déposez les comptes pour ajuster la proposition de la direction financière.
                             </p>
                         </div>
                     </div>
+                    <button
+                        onClick={generateHierarchy}
+                        className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+                    >
+                        <RefreshCcw size={15} />
+                        Regénérer
+                    </button>
                 </header>
 
                 {/* Notifications */}

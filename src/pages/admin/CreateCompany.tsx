@@ -24,6 +24,7 @@ const CreateCompany = () => {
         companyCode: string;
         adminName: string;
         adminEmail: string;
+        userCreationWarning?: string;
     } | null>(null);
 
     const steps = [
@@ -69,12 +70,11 @@ const CreateCompany = () => {
             // Finalize: Call Actual API
             // Note: In a real scenario, this single call might trigger the whole flow in the backend,
             // or we might chain calls. For now, we simulate the visual feedback then submit.
-            await api.post('/companies', {
+            const res = await api.post('/companies', {
                 companyName: formData.companyName,
                 companyCode: formData.companyCode,
                 adminEmail: formData.adminEmail,
                 adminFullName: formData.adminName,
-                // Defaulting other required fields for now or letting backend handle defaults
                 databaseName: `KPIW_${formData.companyCode}`
             });
 
@@ -86,6 +86,7 @@ const CreateCompany = () => {
                 companyCode: formData.companyCode,
                 adminName: formData.adminName,
                 adminEmail: formData.adminEmail,
+                userCreationWarning: res.data.userCreationWarning ?? undefined,
             });
             setIsProcessing(false);
 
@@ -131,28 +132,44 @@ const CreateCompany = () => {
                         </div>
                     </div>
 
-                    {/* User provisioned */}
-                    <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-5 mb-5">
-                        <p className="text-xs font-semibold text-emerald-700 uppercase tracking-wide mb-3">Utilisateur provisionné</p>
-                        <div className="space-y-2">
-                            <div className="flex items-center gap-2 text-sm text-slate-700">
-                                <User size={14} className="text-slate-400 shrink-0" />
-                                <span className="font-medium">{successData.adminName}</span>
+                    {/* User provisioned — or warning if it failed */}
+                    {successData.userCreationWarning ? (
+                        <div className="rounded-xl border border-amber-200 bg-amber-50 p-5 mb-5">
+                            <div className="flex items-center gap-2 mb-2">
+                                <AlertCircle size={16} className="text-amber-600 shrink-0" />
+                                <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide">Utilisateur non créé</p>
                             </div>
-                            <div className="flex items-center gap-2 text-sm text-slate-700">
-                                <Mail size={14} className="text-slate-400 shrink-0" />
-                                <span>{successData.adminEmail}</span>
-                            </div>
-                        </div>
-                        <div className="mt-3 pt-3 border-t border-emerald-200">
-                            <p className="text-xs text-emerald-700">
-                                Email de bienvenue envoyé — lien d'activation valable <span className="font-bold">72 heures</span>.
+                            <p className="text-sm text-amber-800 mb-1">
+                                La société a été créée mais l'utilisateur <span className="font-medium">{successData.adminEmail}</span> n'a pas pu être provisionné.
                             </p>
-                            <p className="text-xs text-slate-500 mt-1">
-                                Si l'email n'a pas été reçu : Sociétés → <span className="font-mono">···</span> → Voir les utilisateurs → Renvoyer l'email.
+                            <p className="text-xs text-amber-700 bg-amber-100 rounded-lg px-3 py-2 mt-2 font-mono break-all">{successData.userCreationWarning}</p>
+                            <p className="text-xs text-slate-600 mt-3">
+                                Pour créer un utilisateur manuellement : <span className="font-semibold">Utilisateurs → Ajouter un utilisateur</span> en sélectionnant cette société.
                             </p>
                         </div>
-                    </div>
+                    ) : (
+                        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-5 mb-5">
+                            <p className="text-xs font-semibold text-emerald-700 uppercase tracking-wide mb-3">Utilisateur provisionné</p>
+                            <div className="space-y-2">
+                                <div className="flex items-center gap-2 text-sm text-slate-700">
+                                    <User size={14} className="text-slate-400 shrink-0" />
+                                    <span className="font-medium">{successData.adminName}</span>
+                                </div>
+                                <div className="flex items-center gap-2 text-sm text-slate-700">
+                                    <Mail size={14} className="text-slate-400 shrink-0" />
+                                    <span>{successData.adminEmail}</span>
+                                </div>
+                            </div>
+                            <div className="mt-3 pt-3 border-t border-emerald-200">
+                                <p className="text-xs text-emerald-700">
+                                    Email de bienvenue envoyé — lien d'activation valable <span className="font-bold">72 heures</span>.
+                                </p>
+                                <p className="text-xs text-slate-500 mt-1">
+                                    Si l'email n'a pas été reçu : Sociétés → <span className="font-mono">···</span> → Voir les utilisateurs → Renvoyer l'email.
+                                </p>
+                            </div>
+                        </div>
+                    )}
 
                     {/* Actions */}
                     <div className="flex gap-3">
