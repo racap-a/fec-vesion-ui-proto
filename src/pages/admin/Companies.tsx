@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { ShieldAlert, Search, Building2, MoreHorizontal, Loader2, X, Mail, CheckCircle, Users, AlertTriangle, Pencil } from 'lucide-react';
+import { ShieldAlert, Search, Building2, MoreHorizontal, Loader2, X, Mail, CheckCircle, Users, AlertTriangle, Pencil, ExternalLink, FileText, Map } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
 
 // Type definition based on API docs
@@ -10,6 +11,10 @@ interface Company {
     databaseName: string;
     isActive: boolean;
     createdAt: string;
+    userCount?: number;
+    mappedAccounts?: number;
+    lastIngestionAt?: string | null;
+    lastIngestionStatus?: string | null;
 }
 
 interface User {
@@ -26,6 +31,7 @@ interface User {
 }
 
 const Companies = () => {
+    const navigate = useNavigate();
     const [companies, setCompanies] = useState<Company[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState('');
@@ -45,7 +51,7 @@ const Companies = () => {
 
     const fetchCompanies = async () => {
         try {
-            const response = await api.get('/companies');
+            const response = await api.get('/companies/with-stats');
             setCompanies(response.data);
         } catch (err) {
             console.error('Failed to fetch companies', err);
@@ -183,24 +189,65 @@ const Companies = () => {
                 <table className="w-full text-left">
                     <thead className="bg-slate-50 text-slate-500 text-xs uppercase font-semibold">
                         <tr>
-                            <th className="px-6 py-4">Company Name</th>
-                            <th className="px-6 py-4">Code / Database</th>
-                            <th className="px-6 py-4">Status</th>
+                            <th className="px-6 py-4">Société</th>
+                            <th className="px-6 py-4">Code / Base</th>
+                            <th className="px-6 py-4">Utilisateurs</th>
+                            <th className="px-6 py-4">Mapping</th>
+                            <th className="px-6 py-4">Dernière ingestion</th>
+                            <th className="px-6 py-4">Statut</th>
                             <th className="px-6 py-4 text-right">Actions</th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                         {filteredCompanies.map((company) => (
                             <tr key={company.companyID} className="hover:bg-slate-50/50 transition-colors group">
-                                <td className="px-6 py-4 font-medium text-slate-900 flex items-center gap-3">
-                                    <div className="w-8 h-8 rounded bg-slate-100 flex items-center justify-center text-slate-500 group-hover:bg-brand-primary/10 group-hover:text-brand-primary transition-colors">
-                                        <Building2 size={16} />
+                                <td className="px-6 py-4 font-medium text-slate-900">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-8 h-8 rounded bg-slate-100 flex items-center justify-center text-slate-500 group-hover:bg-brand-primary/10 group-hover:text-brand-primary transition-colors shrink-0">
+                                            <Building2 size={16} />
+                                        </div>
+                                        <button onClick={() => navigate(`/admin/companies/${company.companyID}`)} className="text-slate-900 font-medium hover:text-brand-primary transition-colors">
+                                            {company.companyName}
+                                        </button>
                                     </div>
-                                    {company.companyName}
                                 </td>
                                 <td className="px-6 py-4 text-slate-500 font-mono text-xs">
                                     <span className="block text-slate-700 font-bold">{company.companyCode}</span>
                                     {company.databaseName}
+                                </td>
+                                <td className="px-6 py-4">
+                                    {company.userCount !== undefined ? (
+                                        <span className="flex items-center gap-1.5 text-sm text-slate-600">
+                                            <Users size={13} className="text-slate-400" />
+                                            {company.userCount}
+                                        </span>
+                                    ) : <span className="text-slate-300 text-xs">—</span>}
+                                </td>
+                                <td className="px-6 py-4">
+                                    {company.mappedAccounts !== undefined ? (
+                                        <span className="flex items-center gap-1.5 text-sm text-slate-600">
+                                            <Map size={13} className={company.mappedAccounts > 0 ? 'text-emerald-500' : 'text-slate-300'} />
+                                            {company.mappedAccounts > 0 ? `${company.mappedAccounts} comptes` : 'Non mappé'}
+                                        </span>
+                                    ) : <span className="text-slate-300 text-xs">—</span>}
+                                </td>
+                                <td className="px-6 py-4">
+                                    {company.lastIngestionAt ? (
+                                        <div>
+                                            <span className={`text-xs font-medium px-1.5 py-0.5 rounded border ${
+                                                company.lastIngestionStatus === 'Completed' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                                                company.lastIngestionStatus === 'Failed' ? 'bg-red-50 text-red-600 border-red-200' :
+                                                'bg-slate-50 text-slate-500 border-slate-200'
+                                            }`}>{company.lastIngestionStatus}</span>
+                                            <p className="text-xs text-slate-400 mt-0.5">
+                                                {new Intl.DateTimeFormat('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date(company.lastIngestionAt))}
+                                            </p>
+                                        </div>
+                                    ) : (
+                                        <span className="flex items-center gap-1 text-xs text-slate-400">
+                                            <FileText size={12} /> Aucune
+                                        </span>
+                                    )}
                                 </td>
                                 <td className="px-6 py-4">
                                     <button
@@ -221,23 +268,25 @@ const Companies = () => {
                                             <MoreHorizontal size={18} />
                                         </button>
                                         {openDropdown === company.companyID && (
-                                            <div className="absolute right-0 mt-1 w-48 bg-white border border-slate-200 rounded-lg shadow-lg z-10 py-1">
+                                            <div className="absolute right-0 mt-1 w-52 bg-white border border-slate-200 rounded-lg shadow-lg z-10 py-1">
+                                                <button
+                                                    onClick={() => { setOpenDropdown(null); navigate(`/admin/companies/${company.companyID}`); }}
+                                                    className="w-full text-left flex items-center gap-2 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                                                >
+                                                    <ExternalLink size={14} /> Voir le détail
+                                                </button>
+                                                <div className="border-t border-slate-100 my-1" />
                                                 <button
                                                     onClick={() => openUsersModal(company)}
-                                                    className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                                                    className="w-full text-left flex items-center gap-2 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
                                                 >
-                                                    <Users size={14} />
-                                                    Voir les utilisateurs
+                                                    <Users size={14} /> Voir les utilisateurs
                                                 </button>
                                                 <button
-                                                    onClick={() => {
-                                                        setOpenDropdown(null);
-                                                        setEditModal({ open: true, company, name: company.companyName, saving: false, error: '' });
-                                                    }}
-                                                    className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                                                    onClick={() => { setOpenDropdown(null); setEditModal({ open: true, company, name: company.companyName, saving: false, error: '' }); }}
+                                                    className="w-full text-left flex items-center gap-2 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
                                                 >
-                                                    <Pencil size={14} />
-                                                    Modifier le nom
+                                                    <Pencil size={14} /> Modifier le nom
                                                 </button>
                                             </div>
                                         )}
