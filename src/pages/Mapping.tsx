@@ -313,10 +313,10 @@ export default function Mapping() {
         description: '',
     });
 
-    // Auto-poll while AI is running: reload tree every 5s, stop when no more unmapped accounts
+    // Auto-poll while AI is running: reload tree immediately then every 5s, stop when no unmapped remain
     useEffect(() => {
         if (!aiRunning) return;
-        const interval = setInterval(async () => {
+        const poll = async () => {
             if (!companyId) return;
             try {
                 const res = await api.get<TreeResponse>(`/mapping/${companyId}/tree`);
@@ -340,7 +340,9 @@ export default function Mapping() {
                     setAiRunning(false);
                 }
             } catch { /* ignore poll errors */ }
-        }, 5000);
+        };
+        poll(); // fire once immediately — catches the case where backend processed AI synchronously
+        const interval = setInterval(poll, 5000);
         return () => clearInterval(interval);
     }, [aiRunning, companyId]);
 
