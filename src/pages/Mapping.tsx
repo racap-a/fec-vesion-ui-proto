@@ -14,8 +14,14 @@ import api from '../services/api';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Phase = 'checking' | 'idle' | 'prefix' | 'ai' | 'loading' | 'ready' | 'saving' | 'saved';
+type Phase = 'checking' | 'idle' | 'context' | 'prefix' | 'ai' | 'loading' | 'ready' | 'saving' | 'saved';
 type MappingSource = 'auto' | 'ai' | 'manual';
+
+interface CompanyContext {
+    sector: string;
+    companyType: string;
+    description: string;
+}
 
 interface MappingEntry {
     pcgCode: string;
@@ -301,6 +307,42 @@ export default function Mapping() {
     const [saveMsg, setSaveMsg] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [aiRunning, setAiRunning] = useState(false);
+    const [companyContext, setCompanyContext] = useState<CompanyContext>({
+        sector: '',
+        companyType: '',
+        description: '',
+    });
+
+    // Auto-poll while AI is running: reload tree every 5s, stop when no more unmapped accounts
+    useEffect(() => {
+        if (!aiRunning) return;
+        const interval = setInterval(async () => {
+            if (!companyId) return;
+            try {
+                const res = await api.get<TreeResponse>(`/mapping/${companyId}/tree`);
+                if (res.data.unmappedCount === 0) {
+                    setTreeResponse(res.data);
+                    const flat: Record<string, MappingEntry> = {};
+                    res.data.tree.forEach(cat => {
+                        cat.children.forEach(pcg => {
+                            pcg.children.forEach(fec => {
+                                flat[fec.id] = {
+                                    pcgCode: pcg.id,
+                                    pcgName: pcg.label.replace(`${pcg.id} - `, ''),
+                                    source: (fec.mappingSource as MappingSource) || 'auto',
+                                    accountName: fec.label.replace(`${fec.id} - `, ''),
+                                    balance: fec.balance ?? 0,
+                                };
+                            });
+                        });
+                    });
+                    setMappings(flat);
+                    setAiRunning(false);
+                }
+            } catch { /* ignore poll errors */ }
+        }, 5000);
+        return () => clearInterval(interval);
+    }, [aiRunning, companyId]);
 
     // Load tree from API and populate local mappings map
     const loadTree = useCallback(async () => {
@@ -363,7 +405,7 @@ export default function Mapping() {
     }, [companyId]);
 
     // Run full auto-mapping pipeline: prefix → fire ai in background → load tree immediately
-    const startAutoMapping = useCallback(async () => {
+    const startAutoMapping = useCallback(async (ctx: CompanyContext) => {
         if (!companyId) return;
         setError(null);
         setPrefixResult(null);
@@ -379,7 +421,11 @@ export default function Mapping() {
             // Step 2: fire ai-suggest in background — backend returns 202 immediately
             if (pRes.data.unmatched > 0) {
                 setPhase('ai');
-                await api.post(`/mapping/${companyId}/ai-suggest`); // returns 202 instantly
+                await api.post(`/mapping/${companyId}/ai-suggest`, {
+                    sector: ctx.sector || null,
+                    companyType: ctx.companyType || null,
+                    description: ctx.description || null,
+                }); // returns 202 instantly
                 setAiRunning(true);
             }
 
@@ -470,6 +516,105 @@ export default function Mapping() {
         return <PhaseProgress phase={phase} prefixResult={prefixResult} aiResult={aiResult} />;
     }
 
+    if (phase === 'context') {
+        const sectors = [
+            'IT / Tech / SaaS',
+            'BTP / Construction',
+            'Commerce / Distribution',
+            'Industrie / Manufacturing',
+            'Services aux entreprises',
+            'Santé / Médical',
+            'Finance / Assurance',
+            'Restauration / Hôtellerie',
+            'Immobilier',
+            'Autre',
+        ];
+        const companyTypes = [
+            'Prestataire de services',
+            'Société commerciale (achat / revente)',
+            'Société industrielle',
+            'Holding / Société mère',
+            'Association / ONG',
+            'Autre',
+        ];
+
+        return (
+            <div className="h-full flex items-center justify-center bg-slate-50 p-8">
+                <div className="bg-white rounded-2xl p-10 shadow-sm border border-slate-200 max-w-lg w-full">
+                    <div className="flex items-center gap-3 mb-6">
+                        <div className="bg-purple-100 p-3 rounded-xl">
+                            <Sparkles size={22} className="text-purple-600" />
+                        </div>
+                        <div>
+                            <h2 className="text-lg font-bold text-slate-900">Contexte pour l'IA</h2>
+                            <p className="text-xs text-slate-500 mt-0.5">Aide l'IA à choisir les bons codes PCG</p>
+                        </div>
+                    </div>
+
+                    <div className="space-y-4">
+                        <div>
+                            <label className="block text-sm font-semibold text-slate-700 mb-1.5">
+                                Secteur d'activité
+                            </label>
+                            <select
+                                value={companyContext.sector}
+                                onChange={e => setCompanyContext(p => ({ ...p, sector: e.target.value }))}
+                                className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-brand-primary/30 focus:border-brand-primary"
+                            >
+                                <option value="">— Sélectionner —</option>
+                                {sectors.map(s => <option key={s} value={s}>{s}</option>)}
+                            </select>
+                        </div>
+
+                        <div>
+                            <label className="block text-sm font-semibold text-slate-700 mb-1.5">
+                                Type de société
+                            </label>
+                            <select
+                                value={companyContext.companyType}
+                                onChange={e => setCompanyContext(p => ({ ...p, companyType: e.target.value }))}
+                                className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-brand-primary/30 focus:border-brand-primary"
+                            >
+                                <option value="">— Sélectionner —</option>
+                                {companyTypes.map(t => <option key={t} value={t}>{t}</option>)}
+                            </select>
+                        </div>
+
+                        <div>
+                            <label className="block text-sm font-semibold text-slate-700 mb-1.5">
+                                Description de l'activité
+                                <span className="text-slate-400 font-normal ml-1">(optionnel)</span>
+                            </label>
+                            <textarea
+                                value={companyContext.description}
+                                onChange={e => setCompanyContext(p => ({ ...p, description: e.target.value }))}
+                                placeholder="Ex : éditeur de logiciels B2B, principalement des abonnements SaaS et des charges de R&D..."
+                                rows={3}
+                                className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-brand-primary/30 focus:border-brand-primary resize-none"
+                            />
+                        </div>
+                    </div>
+
+                    <div className="flex items-center gap-3 mt-6">
+                        <button
+                            onClick={() => startAutoMapping(companyContext)}
+                            className="flex-1 flex items-center justify-center gap-2 bg-brand-primary text-white px-6 py-3 rounded-xl font-bold hover:bg-brand-primary/90 hover:-translate-y-0.5 transition-all shadow-md"
+                        >
+                            <Play size={16} />
+                            Confirmer et lancer
+                        </button>
+                        <button
+                            onClick={() => startAutoMapping({ sector: '', companyType: '', description: '' })}
+                            className="text-sm text-slate-400 hover:text-slate-600 transition-colors px-3 py-3"
+                        >
+                            Passer
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
     if (phase === 'idle') {
         return (
             <div className="h-full flex items-center justify-center bg-slate-50 p-8">
@@ -485,7 +630,7 @@ export default function Mapping() {
                         <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 mb-4">{error}</p>
                     )}
                     <button
-                        onClick={startAutoMapping}
+                        onClick={() => setPhase('context')}
                         className="flex items-center gap-2 mx-auto bg-brand-primary text-white px-8 py-3.5 rounded-xl font-bold hover:bg-brand-primary/90 hover:-translate-y-0.5 transition-all shadow-lg"
                     >
                         <Play size={18} />
@@ -526,7 +671,7 @@ export default function Mapping() {
                             <span className="flex items-center gap-1"><Pencil size={11} className="text-blue-400" /> Manuel</span>
                         </div>
                         <button
-                            onClick={startAutoMapping}
+                            onClick={() => setPhase('context')}
                             className="flex items-center gap-1.5 px-3 py-2 text-sm text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
                         >
                             <RefreshCcw size={14} />
@@ -551,7 +696,7 @@ export default function Mapping() {
                     <div className="mx-8 mt-4 shrink-0 p-3 bg-purple-50 border border-purple-200 rounded-xl flex items-center justify-between gap-3">
                         <div className="flex items-center gap-2 text-purple-700 text-sm">
                             <Loader2 size={15} className="animate-spin shrink-0" />
-                            <span>L'IA complète le mapping en arrière-plan — actualisez dans 1-2 min pour voir les résultats.</span>
+                            <span>L'IA complète le mapping en arrière-plan — la vue se met à jour automatiquement.</span>
                         </div>
                         <button
                             onClick={async () => { await loadTree(); setAiRunning(false); }}
