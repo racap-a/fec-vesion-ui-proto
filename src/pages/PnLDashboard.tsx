@@ -99,15 +99,29 @@ const DonutTooltipContent = ({ active, payload }: any) => {
 
 export default function PnLDashboard() {
     const { user } = useAuth();
-    const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
+    const [selectedYear, setSelectedYear] = useState<number>(0);
+    const [availableYears, setAvailableYears] = useState<number[]>([]);
     const [lines, setLines] = useState<PLLine[]>([]);
     const [isLoading, setIsLoading] = useState<boolean>(true);
     const [fetchError, setFetchError] = useState<string | null>(null);
 
-    const yearOptions = Array.from({ length: 12 }, (_, i) => 2020 + i);
+    // Fetch available years on mount, then auto-select the most recent one with data
+    useEffect(() => {
+        if (!user?.companyId) return;
+        api.get(`/pl/${user.companyId}/available-years`)
+            .then(res => {
+                const years: number[] = res.data ?? [];
+                setAvailableYears(years);
+                setSelectedYear(years.length > 0 ? years[0] : new Date().getFullYear());
+            })
+            .catch(() => {
+                setSelectedYear(new Date().getFullYear());
+                setIsLoading(false);
+            });
+    }, [user?.companyId]);
 
     const fetchData = useCallback(async () => {
-        if (!user?.companyId) return;
+        if (!user?.companyId || selectedYear === 0) return;
         setIsLoading(true);
         setFetchError(null);
         try {
@@ -194,7 +208,9 @@ export default function PnLDashboard() {
                     onChange={e => setSelectedYear(Number(e.target.value))}
                     className="bg-slate-50 border border-slate-200 text-slate-900 text-sm rounded-lg focus:ring-brand-primary focus:border-brand-primary p-2.5 font-medium min-w-[100px]"
                 >
-                    {yearOptions.map(y => <option key={y} value={y}>{y}</option>)}
+                    {(availableYears.length > 0 ? availableYears : [selectedYear]).map(y => (
+                        <option key={y} value={y}>{y}</option>
+                    ))}
                 </select>
             </header>
 
