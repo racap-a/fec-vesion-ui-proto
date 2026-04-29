@@ -6,7 +6,7 @@ import {
 } from '@dnd-kit/core';
 import {
     Folder, GripVertical, Save, Lock, Sparkles, Pencil,
-    AlertTriangle, ChevronDown, ChevronRight, RefreshCcw,
+    AlertTriangle, RefreshCcw,
     Map as MapIcon, Loader2, Play, CheckCircle2
 } from 'lucide-react';
 import { clsx } from 'clsx';
@@ -154,69 +154,35 @@ const PcgDropZone = ({ pcgCode, pcgName, fecChildren, onUnmap }: {
     );
 };
 
-// ─── Category Section ──────────────────────────────────────────────────────────
+// ─── Category Nav Item (left panel) ───────────────────────────────────────────
 
-const CategorySection = ({ category, mappings, onUnmap }: {
+const CategoryNavItem = ({ category, count, isSelected, onSelect }: {
     category: ApiNode;
-    mappings: Record<string, MappingEntry>;
-    onUnmap: (fecId: string) => void;
-}) => {
-    const fecCount = useMemo(() => {
-        return category.children.reduce((total, pcg) => {
-            return total + pcg.children.filter(c => mappings[c.id]).length +
-                Object.values(mappings).filter(m => m.pcgCode === pcg.id).length;
-        }, 0);
-    }, [category, mappings]);
-
-    // Auto-expand categories that have mapped accounts
-    const [isOpen, setIsOpen] = useState(fecCount > 0);
-
-    // Collect FEC accounts under each PCG from mappings
-    const pcgWithChildren = category.children.map(pcg => {
-        const children = Object.entries(mappings)
-            .filter(([, m]) => m.pcgCode === pcg.id)
-            .map(([fecId, m]) => ({ id: fecId, name: m.accountName, balance: m.balance, source: m.source }))
-            .sort((a, b) => a.id.localeCompare(b.id));
-        return { pcg, children };
-    });
-
-    const totalMapped = pcgWithChildren.reduce((s, p) => s + p.children.length, 0);
-
-    return (
-        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-            <button
-                onClick={() => setIsOpen(v => !v)}
-                className="w-full flex items-center gap-3 p-4 hover:bg-slate-50 transition-colors text-left"
-            >
-                <Folder size={18} className="text-amber-500 fill-amber-100 shrink-0" />
-                <span className="font-bold text-slate-800 flex-1 truncate">{category.label}</span>
-                {totalMapped > 0 && (
-                    <span className="text-xs font-medium text-emerald-600 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">
-                        {totalMapped} compte{totalMapped > 1 ? 's' : ''}
-                    </span>
-                )}
-                {isOpen
-                    ? <ChevronDown size={16} className="text-slate-400 shrink-0" />
-                    : <ChevronRight size={16} className="text-slate-400 shrink-0" />
-                }
-            </button>
-
-            {isOpen && (
-                <div className="px-4 pb-4 space-y-2 border-t border-slate-100 pt-3">
-                    {pcgWithChildren.map(({ pcg, children }) => (
-                        <PcgDropZone
-                            key={pcg.id}
-                            pcgCode={pcg.id}
-                            pcgName={pcg.label.split(' - ').slice(1).join(' - ')}
-                            fecChildren={children}
-                            onUnmap={onUnmap}
-                        />
-                    ))}
-                </div>
-            )}
-        </div>
-    );
-};
+    count: number;
+    isSelected: boolean;
+    onSelect: () => void;
+}) => (
+    <button
+        onClick={onSelect}
+        className={clsx(
+            "w-full flex items-center gap-2 px-4 py-2.5 text-left transition-colors border-r-2",
+            isSelected
+                ? "bg-brand-primary/10 border-brand-primary text-brand-primary"
+                : "border-transparent hover:bg-slate-50 text-slate-600"
+        )}
+    >
+        <Folder size={13} className={clsx("shrink-0", isSelected ? "text-brand-primary" : "text-amber-500")} />
+        <span className="flex-1 text-xs font-medium truncate">{category.label}</span>
+        {count > 0 && (
+            <span className={clsx(
+                "text-[10px] font-mono px-1.5 py-0.5 rounded-full shrink-0 font-semibold",
+                isSelected ? "bg-brand-primary/20 text-brand-primary" : "bg-emerald-100 text-emerald-700"
+            )}>
+                {count}
+            </span>
+        )}
+    </button>
+);
 
 // ─── Phase Progress ────────────────────────────────────────────────────────────
 
@@ -308,6 +274,7 @@ export default function Mapping() {
     const [error, setError] = useState<string | null>(null);
     const [aiRunning, setAiRunning] = useState(false);
     const [aiFailed, setAiFailed] = useState(false);
+    const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
     const [companyContext, setCompanyContext] = useState<CompanyContext>({
         sector: '',
         companyType: '',
@@ -520,6 +487,35 @@ export default function Mapping() {
     const mappedCount = Object.keys(mappings).length;
     const totalCount = treeResponse?.totalFecAccounts ?? 0;
 
+    // Auto-select first category when tree loads
+    useEffect(() => {
+        if (treeResponse?.tree.length && !selectedCategoryId) {
+            setSelectedCategoryId(treeResponse.tree[0].id);
+        }
+    }, [treeResponse, selectedCategoryId]);
+
+    const selectedCategory = treeResponse?.tree.find(c => c.id === selectedCategoryId) ?? null;
+
+    const categoryChipCounts = useMemo(() => {
+        const counts: Record<string, number> = {};
+        treeResponse?.tree.forEach(cat => {
+            counts[cat.id] = cat.children.reduce((sum, pcg) =>
+                sum + Object.values(mappings).filter(m => m.pcgCode === pcg.id).length, 0);
+        });
+        return counts;
+    }, [treeResponse, mappings]);
+
+    const selectedPcgRows = useMemo(() => {
+        if (!selectedCategory) return [];
+        return selectedCategory.children.map(pcg => {
+            const children = Object.entries(mappings)
+                .filter(([, m]) => m.pcgCode === pcg.id)
+                .map(([fecId, m]) => ({ id: fecId, name: m.accountName, balance: m.balance, source: m.source }))
+                .sort((a, b) => a.id.localeCompare(b.id));
+            return { pcg, children };
+        });
+    }, [selectedCategory, mappings]);
+
     // ── Render phases ────────────────────────────────────────────────────────
 
     if (phase === 'checking') {
@@ -666,132 +662,150 @@ export default function Mapping() {
             <div className="h-full flex flex-col bg-slate-50">
 
                 {/* Header */}
-                <header className="bg-white border-b border-slate-200 px-8 py-4 shrink-0 flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                        <div className="bg-brand-primary/10 p-2.5 rounded-xl">
-                            <MapIcon size={20} className="text-brand-primary" />
+                <header className="bg-white border-b border-slate-200 px-6 py-3.5 shrink-0 flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                        <div className="bg-brand-primary/10 p-2 rounded-lg">
+                            <MapIcon size={18} className="text-brand-primary" />
                         </div>
                         <div>
-                            <h1 className="text-xl font-bold text-slate-900">Mapping PCG</h1>
-                            <p className="text-xs text-slate-500 mt-0.5">
+                            <h1 className="text-base font-bold text-slate-900">Mapping PCG</h1>
+                            <p className="text-xs text-slate-400">
                                 {mappedCount} / {totalCount} comptes mappés
                                 {unmappedAccounts.length > 0 && (
-                                    <span className="text-amber-600 ml-2">· {unmappedAccounts.length} sans correspondance</span>
+                                    <span className="text-amber-500 ml-2">· {unmappedAccounts.length} sans correspondance</span>
                                 )}
                             </p>
                         </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                        {/* Legend */}
-                        <div className="hidden lg:flex items-center gap-3 text-xs text-slate-500 mr-4">
-                            <span className="flex items-center gap-1"><Lock size={11} /> Auto</span>
-                            <span className="flex items-center gap-1"><Sparkles size={11} className="text-purple-400" /> IA</span>
-                            <span className="flex items-center gap-1"><Pencil size={11} className="text-blue-400" /> Manuel</span>
+                    <div className="flex items-center gap-3">
+                        <div className="hidden lg:flex items-center gap-3 text-xs text-slate-400">
+                            <span className="flex items-center gap-1"><Lock size={10} /> Auto</span>
+                            <span className="flex items-center gap-1"><Sparkles size={10} className="text-purple-400" /> IA</span>
+                            <span className="flex items-center gap-1"><Pencil size={10} className="text-blue-400" /> Manuel</span>
                         </div>
                         <button
-                            onClick={() => setPhase('context')}
-                            className="flex items-center gap-1.5 px-3 py-2 text-sm text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+                            onClick={handleSave}
+                            disabled={phase === 'saving' || phase === 'saved' || mappedCount === 0}
+                            className="flex items-center gap-2 bg-brand-primary text-white px-5 py-2 rounded-lg font-bold text-sm shadow-sm hover:bg-brand-primary/90 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                            <RefreshCcw size={14} />
+                            {phase === 'saving' ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />}
+                            {phase === 'saving' ? 'Enregistrement...' : 'Enregistrer'}
+                        </button>
+                        <button
+                            onClick={() => setPhase('context')}
+                            className="flex items-center gap-1.5 px-3 py-2 text-xs text-slate-500 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+                        >
+                            <RefreshCcw size={13} />
                             Relancer
                         </button>
                     </div>
                 </header>
 
-                {/* Notifications */}
-                {saveMsg && (
-                    <div className="mx-8 mt-4 shrink-0 p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center gap-2 text-emerald-700 text-sm font-medium">
-                        <CheckCircle2 size={16} className="text-emerald-500 shrink-0" />
-                        {saveMsg}
-                    </div>
-                )}
-                {error && (
-                    <div className="mx-8 mt-4 shrink-0 p-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">
-                        {error}
-                    </div>
-                )}
-                {aiRunning && (
-                    <div className="mx-8 mt-4 shrink-0 p-3 bg-purple-50 border border-purple-200 rounded-xl flex items-center justify-between gap-3">
-                        <div className="flex items-center gap-2 text-purple-700 text-sm">
-                            <Loader2 size={15} className="animate-spin shrink-0" />
-                            <span>L'IA complète le mapping en arrière-plan — la vue se met à jour automatiquement.</span>
-                        </div>
-                        <button
-                            onClick={async () => { await loadTree(); setAiRunning(false); }}
-                            className="shrink-0 flex items-center gap-1.5 text-xs font-semibold text-purple-700 bg-purple-100 hover:bg-purple-200 px-3 py-1.5 rounded-lg transition-colors"
-                        >
-                            <RefreshCcw size={12} />
-                            Actualiser
-                        </button>
-                    </div>
-                )}
-                {aiFailed && (
-                    <div className="mx-8 mt-4 shrink-0 p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-center justify-between gap-3">
-                        <div className="flex items-center gap-2 text-amber-700 text-sm">
-                            <AlertTriangle size={15} className="shrink-0" />
-                            <span>L'IA n'a pas pu mapper tous les comptes. Glissez-les manuellement vers un nœud PCG.</span>
-                        </div>
-                        <button
-                            onClick={() => { setAiFailed(false); setPhase('context'); }}
-                            className="shrink-0 flex items-center gap-1.5 text-xs font-semibold text-amber-700 bg-amber-100 hover:bg-amber-200 px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap"
-                        >
-                            <RefreshCcw size={12} />
-                            Relancer l'IA
-                        </button>
+                {/* Notification banners */}
+                {(saveMsg || error || aiRunning || aiFailed) && (
+                    <div className="px-4 pt-3 shrink-0 space-y-2">
+                        {saveMsg && (
+                            <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-lg flex items-center gap-2 text-emerald-700 text-xs font-medium">
+                                <CheckCircle2 size={14} className="shrink-0" /> {saveMsg}
+                            </div>
+                        )}
+                        {error && (
+                            <div className="p-2.5 bg-red-50 border border-red-200 rounded-lg text-red-700 text-xs">{error}</div>
+                        )}
+                        {aiRunning && (
+                            <div className="p-2.5 bg-purple-50 border border-purple-200 rounded-lg flex items-center justify-between gap-3">
+                                <div className="flex items-center gap-2 text-purple-700 text-xs">
+                                    <Loader2 size={13} className="animate-spin shrink-0" />
+                                    L'IA complète le mapping en arrière-plan…
+                                </div>
+                                <button onClick={async () => { await loadTree(); setAiRunning(false); }}
+                                    className="shrink-0 flex items-center gap-1 text-xs font-semibold text-purple-700 bg-purple-100 hover:bg-purple-200 px-2.5 py-1 rounded-lg transition-colors">
+                                    <RefreshCcw size={11} /> Actualiser
+                                </button>
+                            </div>
+                        )}
+                        {aiFailed && (
+                            <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-lg flex items-center justify-between gap-3">
+                                <div className="flex items-center gap-2 text-amber-700 text-xs">
+                                    <AlertTriangle size={13} className="shrink-0" />
+                                    L'IA n'a pas pu mapper tous les comptes. Glissez-les manuellement.
+                                </div>
+                                <button onClick={() => { setAiFailed(false); setPhase('context'); }}
+                                    className="shrink-0 flex items-center gap-1 text-xs font-semibold text-amber-700 bg-amber-100 hover:bg-amber-200 px-2.5 py-1 rounded-lg transition-colors whitespace-nowrap">
+                                    <RefreshCcw size={11} /> Relancer l'IA
+                                </button>
+                            </div>
+                        )}
                     </div>
                 )}
 
-                {/* Scrollable tree */}
-                <div className="flex-1 overflow-y-auto p-8 pb-28 custom-scrollbar">
-                    <div className="max-w-5xl mx-auto space-y-3">
+                {/* Two-panel body */}
+                <div className="flex-1 flex overflow-hidden">
 
-                        {/* Unmapped section — top, needs attention */}
+                    {/* LEFT: Category navigation */}
+                    <aside className="w-52 bg-white border-r border-slate-200 flex flex-col overflow-hidden shrink-0">
+                        <div className="px-4 py-2.5 border-b border-slate-100 shrink-0">
+                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Catégories PCG</p>
+                        </div>
+                        <div className="flex-1 overflow-y-auto py-1">
+                            {treeResponse?.tree.map(cat => (
+                                <CategoryNavItem
+                                    key={cat.id}
+                                    category={cat}
+                                    count={categoryChipCounts[cat.id] ?? 0}
+                                    isSelected={selectedCategoryId === cat.id}
+                                    onSelect={() => setSelectedCategoryId(cat.id)}
+                                />
+                            ))}
+                        </div>
+                    </aside>
+
+                    {/* RIGHT: PCG drop zones for selected category */}
+                    <main className="flex-1 overflow-y-auto p-5">
+
+                        {/* Unmapped — always visible when there are stragglers */}
                         {unmappedAccounts.length > 0 && (
-                            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-4">
-                                <h3 className="flex items-center gap-2 text-sm font-bold text-amber-800 mb-3">
-                                    <AlertTriangle size={15} />
-                                    {unmappedAccounts.length} compte{unmappedAccounts.length > 1 ? 's' : ''} sans correspondance — glissez-les vers un compte PCG
-                                </h3>
-                                <div className="flex flex-wrap gap-2">
+                            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-5">
+                                <p className="flex items-center gap-1.5 text-xs font-bold text-amber-800 mb-2.5">
+                                    <AlertTriangle size={13} />
+                                    {unmappedAccounts.length} compte{unmappedAccounts.length > 1 ? 's' : ''} sans correspondance — glissez vers un nœud PCG ci-dessous
+                                </p>
+                                <div className="flex flex-wrap gap-1.5">
                                     {unmappedAccounts.map(fec => (
-                                        <FecChip
-                                            key={fec.accountId}
-                                            accountId={fec.accountId}
-                                            accountName={fec.accountName}
-                                            balance={fec.balance}
-                                        />
+                                        <FecChip key={fec.accountId} accountId={fec.accountId} accountName={fec.accountName} balance={fec.balance} />
                                     ))}
                                 </div>
                             </div>
                         )}
 
-                        {/* 3-layer tree */}
-                        {treeResponse?.tree.map(category => (
-                            <CategorySection
-                                key={category.id}
-                                category={category}
-                                mappings={mappings}
-                                onUnmap={() => {}} // reassign only, no unmap
-                            />
-                        ))}
-                    </div>
-                </div>
-
-                {/* Fixed save bar */}
-                <div className="absolute bottom-0 left-0 right-0 p-5 bg-white/90 backdrop-blur-sm border-t border-slate-200 z-20">
-                    <div className="max-w-5xl mx-auto flex justify-end">
-                        <button
-                            onClick={handleSave}
-                            disabled={phase === 'saving' || phase === 'saved' || mappedCount === 0}
-                            className="flex items-center gap-2 bg-brand-primary text-white px-8 py-3 rounded-xl font-bold shadow-lg hover:bg-brand-primary/90 hover:-translate-y-0.5 transition-all disabled:opacity-60 disabled:cursor-not-allowed disabled:transform-none"
-                        >
-                            {phase === 'saving'
-                                ? <Loader2 size={18} className="animate-spin" />
-                                : <Save size={18} />
-                            }
-                            {phase === 'saving' ? 'Enregistrement...' : 'Enregistrer le mapping'}
-                        </button>
-                    </div>
+                        {/* Selected category detail */}
+                        {selectedCategory ? (
+                            <>
+                                <div className="flex items-center gap-2 mb-4">
+                                    <Folder size={15} className="text-amber-500 shrink-0" />
+                                    <h2 className="text-sm font-bold text-slate-700">{selectedCategory.label}</h2>
+                                    <span className="text-xs text-slate-400">
+                                        ({selectedPcgRows.reduce((s, p) => s + p.children.length, 0)} compte{selectedPcgRows.reduce((s, p) => s + p.children.length, 0) !== 1 ? 's' : ''} mappé{selectedPcgRows.reduce((s, p) => s + p.children.length, 0) !== 1 ? 's' : ''})
+                                    </span>
+                                </div>
+                                <div className="space-y-2">
+                                    {selectedPcgRows.map(({ pcg, children }) => (
+                                        <PcgDropZone
+                                            key={pcg.id}
+                                            pcgCode={pcg.id}
+                                            pcgName={pcg.label.split(' - ').slice(1).join(' - ')}
+                                            fecChildren={children}
+                                            onUnmap={() => {}}
+                                        />
+                                    ))}
+                                </div>
+                            </>
+                        ) : (
+                            <div className="flex items-center justify-center h-full text-slate-400 text-sm">
+                                Sélectionnez une catégorie
+                            </div>
+                        )}
+                    </main>
                 </div>
             </div>
 

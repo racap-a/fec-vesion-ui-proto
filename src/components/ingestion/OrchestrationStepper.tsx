@@ -45,11 +45,12 @@ export const OrchestrationStepper: React.FC<OrchestrationStepperProps> = ({ log 
                     return (
                         <li key={step.name} className={clsx("relative flex-1", !isLast && "pr-8 sm:pr-20")}>
                             <div className="flex items-center">
+                                {/* Step circle — pulses while active */}
                                 <div className={clsx(
-                                    "z-10 flex h-10 w-10 items-center justify-center rounded-full transition-all duration-500",
+                                    "relative z-10 h-10 w-10 shrink-0 flex items-center justify-center rounded-full transition-all duration-500",
                                     isCompleted ? "bg-emerald-500 text-white" :
-                                        isCurrent ? "bg-brand-primary text-white ring-4 ring-brand-primary/20" :
-                                            isFailed && isCurrent ? "bg-red-500 text-white" :
+                                        isCurrent && isFailed ? "bg-red-500 text-white" :
+                                            isCurrent ? "bg-brand-primary text-white ring-4 ring-brand-primary/20 animate-pulse" :
                                                 "bg-slate-100 text-slate-400"
                                 )}>
                                     {isCompleted ? <CheckCircle2 size={20} /> :
@@ -57,11 +58,17 @@ export const OrchestrationStepper: React.FC<OrchestrationStepperProps> = ({ log 
                                             isFailed && isCurrent ? <AlertTriangle size={20} /> :
                                                 <step.icon size={20} />}
                                 </div>
+                                {/* Connector — fills left-to-right on completion */}
                                 {!isLast && (
-                                    <div className={clsx(
-                                        "absolute top-5 left-10 h-1 w-full -z-0 transition-all duration-700",
-                                        isCompleted ? "bg-emerald-500" : "bg-slate-100"
-                                    )} />
+                                    <div className="absolute top-5 left-10 h-1 w-full -z-0 bg-slate-100">
+                                        <div
+                                            className="h-full bg-emerald-500"
+                                            style={{
+                                                width: isCompleted ? '100%' : '0%',
+                                                transition: 'width 700ms ease-out',
+                                            }}
+                                        />
+                                    </div>
                                 )}
                             </div>
                             <div className="mt-3">
