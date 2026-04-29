@@ -307,41 +307,56 @@ export default function Mapping() {
     const [saveMsg, setSaveMsg] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [aiRunning, setAiRunning] = useState(false);
+    const [aiFailed, setAiFailed] = useState(false);
     const [companyContext, setCompanyContext] = useState<CompanyContext>({
         sector: '',
         companyType: '',
         description: '',
     });
 
-    // Auto-poll while AI is running: reload tree immediately then every 5s, stop when no unmapped remain
+    // Auto-poll while AI is running: reload tree immediately then every 5s.
+    // Stops when unmappedCount hits 0 (success) or after 45s (Gemini failure).
     useEffect(() => {
         if (!aiRunning) return;
+        const startedAt = Date.now();
+
+        const applyTree = (data: TreeResponse) => {
+            setTreeResponse(data);
+            const flat: Record<string, MappingEntry> = {};
+            data.tree.forEach(cat => {
+                cat.children.forEach(pcg => {
+                    pcg.children.forEach(fec => {
+                        flat[fec.id] = {
+                            pcgCode: pcg.id,
+                            pcgName: pcg.label.replace(`${pcg.id} - `, ''),
+                            source: (fec.mappingSource as MappingSource) || 'auto',
+                            accountName: fec.label.replace(`${fec.id} - `, ''),
+                            balance: fec.balance ?? 0,
+                        };
+                    });
+                });
+            });
+            setMappings(flat);
+        };
+
         const poll = async () => {
             if (!companyId) return;
             try {
                 const res = await api.get<TreeResponse>(`/mapping/${companyId}/tree`);
                 if (res.data.unmappedCount === 0) {
-                    setTreeResponse(res.data);
-                    const flat: Record<string, MappingEntry> = {};
-                    res.data.tree.forEach(cat => {
-                        cat.children.forEach(pcg => {
-                            pcg.children.forEach(fec => {
-                                flat[fec.id] = {
-                                    pcgCode: pcg.id,
-                                    pcgName: pcg.label.replace(`${pcg.id} - `, ''),
-                                    source: (fec.mappingSource as MappingSource) || 'auto',
-                                    accountName: fec.label.replace(`${fec.id} - `, ''),
-                                    balance: fec.balance ?? 0,
-                                };
-                            });
-                        });
-                    });
-                    setMappings(flat);
+                    applyTree(res.data);
                     setAiRunning(false);
+                    setAiFailed(false);
+                } else if (Date.now() - startedAt > 45_000) {
+                    // Gemini failed or timed out — stop polling, surface current state
+                    applyTree(res.data);
+                    setAiRunning(false);
+                    setAiFailed(true);
                 }
             } catch { /* ignore poll errors */ }
         };
-        poll(); // fire once immediately — catches the case where backend processed AI synchronously
+
+        poll();
         const interval = setInterval(poll, 5000);
         return () => clearInterval(interval);
     }, [aiRunning, companyId]);
@@ -413,6 +428,7 @@ export default function Mapping() {
         setPrefixResult(null);
         setAiResult(null);
         setAiRunning(false);
+        setAiFailed(false);
 
         try {
             // Step 1: prefix-match (fast, wait for it)
@@ -706,6 +722,21 @@ export default function Mapping() {
                         >
                             <RefreshCcw size={12} />
                             Actualiser
+                        </button>
+                    </div>
+                )}
+                {aiFailed && (
+                    <div className="mx-8 mt-4 shrink-0 p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2 text-amber-700 text-sm">
+                            <AlertTriangle size={15} className="shrink-0" />
+                            <span>L'IA n'a pas pu mapper tous les comptes. Glissez-les manuellement vers un nœud PCG.</span>
+                        </div>
+                        <button
+                            onClick={() => { setAiFailed(false); setPhase('context'); }}
+                            className="shrink-0 flex items-center gap-1.5 text-xs font-semibold text-amber-700 bg-amber-100 hover:bg-amber-200 px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap"
+                        >
+                            <RefreshCcw size={12} />
+                            Relancer l'IA
                         </button>
                     </div>
                 )}

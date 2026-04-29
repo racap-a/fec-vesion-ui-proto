@@ -3,6 +3,13 @@ import { useDropzone } from 'react-dropzone';
 import { UploadCloud, FileText, X } from 'lucide-react';
 import { clsx } from 'clsx';
 
+const formatFileSize = (bytes: number): string => {
+    if (bytes === 0) return '—';
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} Ko`;
+    if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(2)} Mo`;
+    return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} Go`;
+};
+
 interface UploadZoneProps {
     onFileSelected: (file: File) => void;
     isProcessing: boolean;
@@ -34,7 +41,7 @@ export const UploadZone: React.FC<UploadZoneProps> = ({ onFileSelected, isProces
                     <FileText size={32} />
                 </div>
                 <h3 className="text-lg font-bold text-slate-900 mb-1">{selectedFile.name}</h3>
-                <p className="text-sm text-slate-500 mb-6">{(selectedFile.size / 1024 / 1024).toFixed(2)} MB • Ready to Upload</p>
+                <p className="text-sm text-slate-500 mb-6">{formatFileSize(selectedFile.size)} • Prêt à traiter</p>
 
                 <button
                     onClick={clearFile}

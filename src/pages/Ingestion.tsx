@@ -19,6 +19,7 @@ const Ingestion = () => {
     const [isProcessing, setIsProcessing] = useState(false);
     const [error, setError] = useState<string>('');
     const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+    const [uploadedFileSize, setUploadedFileSize] = useState<number>(0);
 
     // Refs for polling
     const pollInterval = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -57,6 +58,7 @@ const Ingestion = () => {
             return;
         }
 
+        setUploadedFileSize(file.size);
         setIsProcessing(true);
         setError('');
 
@@ -157,6 +159,7 @@ const Ingestion = () => {
 
     const clearActiveLog = () => {
         setActiveLog(null);
+        setUploadedFileSize(0);
         stopPolling();
         setIsProcessing(false);
         setError('');
@@ -215,7 +218,7 @@ const Ingestion = () => {
                             <UploadZone
                                 onFileSelected={handleFileSelected}
                                 isProcessing={isProcessing}
-                                selectedFile={activeLog ? ({ name: activeLog.originalFileName, size: 0 } as File) : null} // Mock file object for display
+                                selectedFile={activeLog ? ({ name: activeLog.originalFileName, size: uploadedFileSize } as File) : null}
                                 clearFile={clearActiveLog}
                             />
 

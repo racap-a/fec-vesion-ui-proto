@@ -1,10 +1,16 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
-import { Loader2, AlertCircle, BarChart3, FileText } from 'lucide-react';
+import { Loader2, AlertCircle, BarChart3, FileText, TrendingUp, TrendingDown, Minus, Sparkles, ArrowRight } from 'lucide-react';
 import { clsx } from 'clsx';
+import { Link } from 'react-router-dom';
+import {
+    ResponsiveContainer, BarChart, Bar, XAxis, YAxis,
+    CartesianGrid, Tooltip, Legend, PieChart, Pie, Cell,
+} from 'recharts';
 
-// --- Types ---
+// ─── Types ────────────────────────────────────────────────────────────────────
+
 export interface PLLine {
     presentationId: number;
     level1: string;
@@ -22,74 +28,156 @@ export interface PLResponse {
     lines: PLLine[];
 }
 
+// ─── Constants ────────────────────────────────────────────────────────────────
+
 const MONTH_LABELS = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Jun', 'Jul', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc'];
+const PALETTE = ['#153151', '#F4C867', '#10b981', '#6366f1', '#f97316', '#06b6d4', '#ec4899'];
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+const getDepth = (line: PLLine) => {
+    if (line.level5) return 4;
+    if (line.level4) return 3;
+    if (line.level3) return 2;
+    if (line.level2) return 1;
+    return 0;
+};
+
+const getLabel = (line: PLLine) =>
+    line.level5 ?? line.level4 ?? line.level3 ?? line.level2 ?? line.level1;
+
+const formatAmount = (v: number | undefined) =>
+    new Intl.NumberFormat('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v ?? 0);
+
+const compactAmount = (v: number) => {
+    const abs = Math.abs(v);
+    if (abs >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M€`;
+    if (abs >= 1_000) return `${(v / 1_000).toFixed(0)}k€`;
+    return `${v.toFixed(0)}€`;
+};
+
+const amountColor = (v: number | undefined, bold: boolean) => {
+    const val = v ?? 0;
+    if (bold) return val < 0 ? 'text-red-600 font-black' : 'text-slate-900 font-black';
+    return val < 0 ? 'text-red-500' : val > 0 ? 'text-slate-700' : 'text-slate-400';
+};
+
+// ─── Custom Tooltip ───────────────────────────────────────────────────────────
+
+const BarTooltipContent = ({ active, payload, label }: any) => {
+    if (!active || !payload?.length) return null;
+    return (
+        <div className="bg-white border border-slate-200 rounded-xl shadow-lg p-3 text-xs min-w-[180px]">
+            <p className="font-bold text-slate-700 mb-2">{label}</p>
+            {payload.map((p: any) => (
+                <div key={p.dataKey} className="flex items-center gap-2 mb-1">
+                    <div className="w-2 h-2 rounded-full shrink-0" style={{ background: p.fill }} />
+                    <span className="text-slate-500 truncate flex-1">{p.dataKey}</span>
+                    <span className="font-semibold text-slate-800 tabular-nums ml-2">
+                        {compactAmount(p.value)}
+                    </span>
+                </div>
+            ))}
+        </div>
+    );
+};
+
+const DonutTooltipContent = ({ active, payload }: any) => {
+    if (!active || !payload?.length) return null;
+    const { name, value, rawValue } = payload[0].payload;
+    return (
+        <div className="bg-white border border-slate-200 rounded-xl shadow-lg p-3 text-xs">
+            <p className="font-bold text-slate-700 mb-1 max-w-[200px] whitespace-normal">{name}</p>
+            <p className={clsx('font-semibold tabular-nums', rawValue < 0 ? 'text-red-500' : 'text-emerald-600')}>
+                {formatAmount(rawValue)} €
+            </p>
+        </div>
+    );
+};
+
+// ─── Component ────────────────────────────────────────────────────────────────
 
 export default function PnLDashboard() {
     const { user } = useAuth();
-    
-    // Header State
     const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
-    
-    // Data State
     const [lines, setLines] = useState<PLLine[]>([]);
-    
-    // API States
     const [isLoading, setIsLoading] = useState<boolean>(true);
     const [fetchError, setFetchError] = useState<string | null>(null);
 
-    // Fetch Data
+    const yearOptions = Array.from({ length: 12 }, (_, i) => 2020 + i);
+
     const fetchData = useCallback(async () => {
         if (!user?.companyId) return;
-
         setIsLoading(true);
         setFetchError(null);
-
         try {
             const res = await api.get(`/pl/${user.companyId}?year=${selectedYear}`);
-            const data: PLResponse = res.data;
-            setLines(data.lines || []);
-        } catch (err: any) {
-            console.error("Failed to fetch P&L data:", err);
+            setLines((res.data as PLResponse).lines ?? []);
+        } catch {
             setFetchError("Impossible de charger le compte de résultat.");
         } finally {
             setIsLoading(false);
         }
     }, [user?.companyId, selectedYear]);
 
-    // Re-fetch when Year changes
-    useEffect(() => {
-        fetchData();
-    }, [fetchData]);
+    useEffect(() => { fetchData(); }, [fetchData]);
 
-    // --- Format Helpers ---
-    const formatAmount = (amount: number | undefined): string => {
-        return new Intl.NumberFormat('fr-FR', {
-            minimumFractionDigits: 2,
-            maximumFractionDigits: 2
-        }).format(amount ?? 0);
-    };
+    // ── Chart data ──────────────────────────────────────────────────────────
+    // Backend returns only leaf rows (always Level1+Level2 minimum, never a Level1-only aggregate row).
+    // We aggregate by Level1 here to build chart summaries.
 
-    const amountColor = (amount: number | undefined, isHeader: boolean): string => {
-        const val = amount ?? 0;
-        if (isHeader) return val < 0 ? 'text-red-600 font-black' : 'text-slate-900 font-black';
-        return val < 0 ? 'text-red-500' : val > 0 ? 'text-slate-700' : 'text-slate-400';
-    };
+    const level1Aggregates = useMemo(() => {
+        const map = new Map<string, { level1: string; ordre: number; monthlyAmounts: Record<string, number>; total: number }>();
+        lines.forEach(l => {
+            const existing = map.get(l.level1);
+            if (!existing) {
+                const monthly: Record<string, number> = {};
+                for (let m = 1; m <= 12; m++) monthly[String(m)] = l.monthlyAmounts?.[String(m)] ?? 0;
+                map.set(l.level1, { level1: l.level1, ordre: l.ordre, monthlyAmounts: monthly, total: l.total });
+            } else {
+                for (let m = 1; m <= 12; m++) {
+                    existing.monthlyAmounts[String(m)] += l.monthlyAmounts?.[String(m)] ?? 0;
+                }
+                existing.total += l.total;
+            }
+        });
+        return Array.from(map.values()).sort((a, b) => a.ordre - b.ordre);
+    }, [lines]);
 
-    const getRowPresentation = (line: PLLine) => {
-        if (line.level5) return { label: line.level5, depth: 4 };
-        if (line.level4) return { label: line.level4, depth: 3 };
-        if (line.level3) return { label: line.level3, depth: 2 };
-        if (line.level2) return { label: line.level2, depth: 1 };
-        return { label: line.level1, depth: 0 };
-    };
+    // Top 5 by absolute total for bar chart
+    const topForBar = useMemo(
+        () => [...level1Aggregates].sort((a, b) => Math.abs(b.total) - Math.abs(a.total)).slice(0, 5),
+        [level1Aggregates]
+    );
 
-    // Helper to generate year options (2020 to 2031)
-    const yearOptions = Array.from({ length: 12 }, (_, i) => 2020 + i);
+    const barData = useMemo(() =>
+        Array.from({ length: 12 }, (_, i) => {
+            const m = (i + 1).toString();
+            const entry: Record<string, number | string> = { month: MONTH_LABELS[i] };
+            topForBar.forEach(l => { entry[l.level1] = l.monthlyAmounts?.[m] ?? 0; });
+            return entry;
+        }),
+        [topForBar]
+    );
+
+    const donutData = useMemo(() =>
+        level1Aggregates
+            .filter(l => l.total !== 0)
+            .map(l => ({ name: l.level1, value: Math.abs(l.total), rawValue: l.total }))
+            .sort((a, b) => b.value - a.value)
+            .slice(0, 6),
+        [level1Aggregates]
+    );
+
+    const hasCharts = level1Aggregates.length > 0;
+
+    // ── Render ──────────────────────────────────────────────────────────────
 
     return (
         <div className="h-full flex flex-col bg-slate-50">
-            {/* Header / Controls */}
-            <header className="bg-white border-b border-slate-200 px-8 py-5 shrink-0 z-10 flex flex-col md:flex-row md:items-center justify-between gap-4">
+
+            {/* Header */}
+            <header className="bg-white border-b border-slate-200 px-8 py-5 shrink-0 flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div className="flex items-center gap-4">
                     <div className="bg-brand-primary/10 text-brand-primary p-3 rounded-xl border border-brand-primary/20">
                         <BarChart3 size={24} />
@@ -97,134 +185,256 @@ export default function PnLDashboard() {
                     <div>
                         <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Compte de Résultat</h1>
                         <p className="text-sm text-slate-500 mt-1 flex items-center gap-2">
-                            <FileText size={14} /> 
-                            Vue analytique mensuelle du P&L.
+                            <FileText size={14} /> Vue analytique mensuelle du P&L
                         </p>
                     </div>
                 </div>
-
-                <div className="flex items-center gap-4">
-                    <select 
-                        value={selectedYear} 
-                        onChange={(e) => setSelectedYear(Number(e.target.value))}
-                        className="bg-slate-50 border border-slate-200 text-slate-900 text-sm rounded-lg focus:ring-brand-primary focus:border-brand-primary block p-2.5 font-medium min-w-[100px]"
-                    >
-                        {yearOptions.map(y => (
-                            <option key={y} value={y}>{y}</option>
-                        ))}
-                    </select>
-                </div>
+                <select
+                    value={selectedYear}
+                    onChange={e => setSelectedYear(Number(e.target.value))}
+                    className="bg-slate-50 border border-slate-200 text-slate-900 text-sm rounded-lg focus:ring-brand-primary focus:border-brand-primary p-2.5 font-medium min-w-[100px]"
+                >
+                    {yearOptions.map(y => <option key={y} value={y}>{y}</option>)}
+                </select>
             </header>
 
-            {/* Notifications */}
+            {/* Error banner */}
             {fetchError && (
-                <div className="px-8 mt-6 shrink-0">
-                    <div className="p-4 bg-red-50 border border-red-200 rounded-xl flex items-center gap-3 text-red-700 font-medium shadow-sm">
+                <div className="px-8 mt-4 shrink-0">
+                    <div className="p-4 bg-red-50 border border-red-200 rounded-xl flex items-center gap-3 text-red-700 font-medium">
                         <AlertCircle size={20} className="shrink-0" />
                         {fetchError}
                     </div>
                 </div>
             )}
 
-            {/* Grid Area */}
-            <div className="flex-1 overflow-hidden p-8 pt-6">
-                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 h-full flex flex-col">
-                    
+            {/* Scrollable content */}
+            <div className="flex-1 overflow-y-auto">
+                <div className="max-w-screen-2xl mx-auto p-8 space-y-6">
+
                     {isLoading ? (
-                        <div className="flex-1 flex flex-col items-center justify-center p-12 text-slate-500">
+                        <div className="flex flex-col items-center justify-center py-32 text-slate-500">
                             <Loader2 size={40} className="animate-spin mb-4 text-brand-primary" />
-                            <p className="font-medium text-slate-800">Chargement des données {selectedYear}...</p>
-                        </div>
-                    ) : fetchError ? (
-                        <div className="flex-1 flex items-center justify-center text-slate-400">
-                            Données indisponibles.
+                            <p className="font-medium text-slate-800">Chargement {selectedYear}…</p>
                         </div>
                     ) : lines.length === 0 ? (
-                        <div className="flex-1 flex flex-col items-center justify-center p-12 text-slate-400">
-                            <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mb-4 border border-dashed border-slate-300">
-                                <BarChart3 size={24} className="text-slate-300" />
+                        <div className="flex flex-col items-center justify-center py-32 text-slate-400">
+                            <div className="w-16 h-16 bg-violet-50 text-violet-400 rounded-full flex items-center justify-center mb-4 border border-dashed border-violet-200">
+                                <Sparkles size={24} />
                             </div>
-                            <p className="font-medium text-slate-600 mb-1">Aucune ligne générée pour {selectedYear}</p>
-                            <p className="text-sm">Assurez-vous qu'une hiérarchie temporelle existe ou lancez l'IA.</p>
+                            <p className="font-medium text-slate-700 mb-1">Aucune hiérarchie P&L générée</p>
+                            <p className="text-sm text-slate-400 mb-6 text-center max-w-xs">
+                                Lancez l'analyse IA pour construire la structure du Compte de Résultat.
+                            </p>
+                            <Link
+                                to="/ai-pnl-validation"
+                                className="inline-flex items-center gap-2 bg-violet-600 hover:bg-violet-700 text-white px-5 py-2.5 rounded-xl font-semibold text-sm transition-colors shadow-sm"
+                            >
+                                <Sparkles size={15} />
+                                Lancer la Validation IA
+                                <ArrowRight size={15} />
+                            </Link>
                         </div>
                     ) : (
-                        <div className="flex-1 overflow-x-auto overflow-y-auto custom-scrollbar">
-                            <table className="w-full text-sm text-left whitespace-nowrap border-collapse">
-                                <thead className="text-xs text-slate-500 uppercase bg-slate-50/80 sticky top-0 z-10 border-b border-slate-200 backdrop-blur-sm">
-                                    <tr>
-                                        <th scope="col" className="px-6 py-4 font-bold text-slate-800 w-80 sticky left-0 bg-slate-50/95 border-r border-slate-200 shadow-[2px_0_5px_rgba(0,0,0,0.02)]">
-                                            Ligne
-                                        </th>
-                                        {MONTH_LABELS.map(month => (
-                                            <th key={month} scope="col" className="px-4 py-4 w-28 text-right font-bold">{month}</th>
-                                        ))}
-                                        <th scope="col" className="px-6 py-4 w-32 text-right font-black text-slate-900 border-l border-slate-200">
-                                            Total
-                                        </th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {lines.map((line, idx) => {
-                                        const { label, depth } = getRowPresentation(line);
-                                        const isNewGroup = idx === 0 || lines[idx - 1].level1 !== line.level1;
-                                        const isLevel1Header = depth === 0;
-
+                        <>
+                            {/* ── KPI Cards ── */}
+                            {hasCharts && (
+                                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
+                                    {level1Aggregates.slice(0, 6).map((l, i) => {
+                                        const isNeg = l.total < 0;
+                                        const isZero = l.total === 0;
                                         return (
-                                            <React.Fragment key={line.presentationId || idx}>
-                                                {/* Group Header Separator Line if not explicitly a level 1 row but the group changes */}
-                                                {(isNewGroup && !isLevel1Header) && (
-                                                    <tr className="bg-slate-50 border-y border-slate-200">
-                                                        <td className="px-6 py-2 sticky left-0 bg-slate-50 border-r border-slate-200 font-extrabold text-slate-900 shadow-[2px_0_5px_rgba(0,0,0,0.02)] text-sm tracking-wide">
-                                                            {line.level1}
-                                                        </td>
-                                                        <td colSpan={13} className="bg-slate-50"></td>
-                                                    </tr>
-                                                )}
-
-                                                <tr className={clsx(
-                                                    "border-b border-slate-100 hover:bg-rose-50/10 transition-colors group",
-                                                    isLevel1Header && "bg-slate-50 hover:bg-slate-100/80 border-t border-slate-200"
+                                            <div
+                                                key={l.presentationId}
+                                                className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 flex flex-col gap-2"
+                                            >
+                                                <div className="flex items-center justify-between">
+                                                    <div
+                                                        className="w-3 h-3 rounded-full shrink-0"
+                                                        style={{ background: PALETTE[i % PALETTE.length] }}
+                                                    />
+                                                    {isZero ? (
+                                                        <Minus size={14} className="text-slate-400" />
+                                                    ) : isNeg ? (
+                                                        <TrendingDown size={14} className="text-red-500" />
+                                                    ) : (
+                                                        <TrendingUp size={14} className="text-emerald-500" />
+                                                    )}
+                                                </div>
+                                                <p className="text-[11px] text-slate-500 leading-tight line-clamp-2 min-h-[28px]">
+                                                    {l.level1}
+                                                </p>
+                                                <p className={clsx(
+                                                    'text-lg font-bold tabular-nums leading-none',
+                                                    isNeg ? 'text-red-600' : 'text-slate-900'
                                                 )}>
-                                                    <td className={clsx(
-                                                        "py-3 sticky left-0 bg-white group-hover:bg-rose-50/10 border-r border-slate-100 shadow-[2px_0_5px_rgba(0,0,0,0.02)] transition-colors",
-                                                        isLevel1Header && "bg-slate-50 group-hover:bg-slate-100/80",
-                                                        depth === 0 ? "px-6 font-extrabold text-slate-900 text-sm tracking-wide" :
-                                                        depth === 1 ? "pr-6 pl-10 font-bold text-slate-800" :
-                                                        depth === 2 ? "pr-6 pl-14 font-medium text-slate-700" :
-                                                        depth === 3 ? "pr-6 pl-18 text-slate-600" :
-                                                        "pr-6 pl-22 text-slate-500 text-xs" // depth 4 (level5)
-                                                    )}>
-                                                        {label}
-                                                    </td>
-                                                    
-                                                    {Array.from({ length: 12 }, (_, i) => i + 1).map(monthKey => {
-                                                        const amount = line.monthlyAmounts?.[monthKey.toString()];
-                                                        return (
-                                                            <td
-                                                                key={monthKey}
-                                                                className={clsx(
-                                                                    "px-4 py-3 text-right tabular-nums",
-                                                                    amountColor(amount, isLevel1Header)
-                                                                )}
-                                                            >
-                                                                {formatAmount(amount)}
-                                                            </td>
-                                                        );
-                                                    })}
-
-                                                    <td className={clsx(
-                                                        "px-6 py-3 text-right tabular-nums border-l border-slate-200/60",
-                                                        amountColor(line.total, isLevel1Header)
-                                                    )}>
-                                                        {formatAmount(line.total)}
-                                                    </td>
-                                                </tr>
-                                            </React.Fragment>
+                                                    {compactAmount(l.total)}
+                                                </p>
+                                            </div>
                                         );
                                     })}
-                                </tbody>
-                            </table>
-                        </div>
+                                </div>
+                            )}
+
+                            {/* ── Charts row ── */}
+                            {hasCharts && (
+                                <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+
+                                    {/* Bar chart — monthly evolution */}
+                                    <div className="lg:col-span-3 bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+                                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">
+                                            Évolution mensuelle
+                                        </p>
+                                        <ResponsiveContainer width="100%" height={240}>
+                                            <BarChart data={barData} barGap={2} barCategoryGap="25%">
+                                                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                                                <XAxis
+                                                    dataKey="month"
+                                                    tick={{ fontSize: 11, fill: '#94a3b8' }}
+                                                    axisLine={false}
+                                                    tickLine={false}
+                                                />
+                                                <YAxis
+                                                    tickFormatter={compactAmount}
+                                                    tick={{ fontSize: 11, fill: '#94a3b8' }}
+                                                    axisLine={false}
+                                                    tickLine={false}
+                                                    width={60}
+                                                />
+                                                <Tooltip content={<BarTooltipContent />} cursor={{ fill: '#f8fafc' }} />
+                                                <Legend
+                                                    iconType="circle"
+                                                    iconSize={8}
+                                                    wrapperStyle={{ fontSize: '11px', paddingTop: '12px' }}
+                                                    formatter={(v) => <span style={{ color: '#64748b' }}>{v}</span>}
+                                                />
+                                                {topForBar.map((l, i) => (
+                                                    <Bar
+                                                        key={l.level1}
+                                                        dataKey={l.level1}
+                                                        stackId="a"
+                                                        fill={PALETTE[i % PALETTE.length]}
+                                                        radius={i === topForBar.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
+                                                    />
+                                                ))}
+                                            </BarChart>
+                                        </ResponsiveContainer>
+                                    </div>
+
+                                    {/* Donut — breakdown */}
+                                    <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-200 shadow-sm p-6 flex flex-col">
+                                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-4">
+                                            Répartition annuelle
+                                        </p>
+                                        <div className="flex-1 flex flex-col items-center justify-center">
+                                            <ResponsiveContainer width="100%" height={180}>
+                                                <PieChart>
+                                                    <Pie
+                                                        data={donutData}
+                                                        cx="50%"
+                                                        cy="50%"
+                                                        innerRadius={55}
+                                                        outerRadius={80}
+                                                        paddingAngle={3}
+                                                        dataKey="value"
+                                                        strokeWidth={0}
+                                                    >
+                                                        {donutData.map((_, i) => (
+                                                            <Cell key={i} fill={PALETTE[i % PALETTE.length]} />
+                                                        ))}
+                                                    </Pie>
+                                                    <Tooltip content={<DonutTooltipContent />} />
+                                                </PieChart>
+                                            </ResponsiveContainer>
+                                            {/* Legend */}
+                                            <div className="w-full space-y-1.5 mt-2">
+                                                {donutData.map((d, i) => (
+                                                    <div key={d.name} className="flex items-center gap-2 text-xs">
+                                                        <div className="w-2 h-2 rounded-full shrink-0" style={{ background: PALETTE[i % PALETTE.length] }} />
+                                                        <span className="text-slate-500 truncate flex-1">{d.name}</span>
+                                                        <span className={clsx('font-semibold tabular-nums shrink-0', d.rawValue < 0 ? 'text-red-500' : 'text-slate-700')}>
+                                                            {compactAmount(d.rawValue)}
+                                                        </span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                </div>
+                            )}
+
+                            {/* ── Table ── */}
+                            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+                                <div className="px-6 py-4 border-b border-slate-100">
+                                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                                        Détail mensuel
+                                    </p>
+                                </div>
+                                <div className="overflow-x-auto overflow-y-auto max-h-[600px]">
+                                    <table className="w-full text-sm text-left whitespace-nowrap border-collapse">
+                                        <thead className="text-xs text-slate-500 uppercase bg-slate-50/80 sticky top-0 z-10 border-b border-slate-200 backdrop-blur-sm">
+                                            <tr>
+                                                <th className="px-6 py-4 font-bold text-slate-800 w-80 sticky left-0 bg-slate-50/95 border-r border-slate-200 shadow-[2px_0_5px_rgba(0,0,0,0.02)]">
+                                                    Ligne
+                                                </th>
+                                                {MONTH_LABELS.map(m => (
+                                                    <th key={m} className="px-4 py-4 w-28 text-right font-bold">{m}</th>
+                                                ))}
+                                                <th className="px-6 py-4 w-32 text-right font-black text-slate-900 border-l border-slate-200">
+                                                    Total
+                                                </th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {lines.map((line, idx) => {
+                                                const depth = getDepth(line);
+                                                const label = getLabel(line);
+                                                const isNewGroup = idx === 0 || lines[idx - 1].level1 !== line.level1;
+                                                const isLevel1 = depth === 0;
+
+                                                return (
+                                                    <React.Fragment key={line.presentationId || idx}>
+                                                        {isNewGroup && !isLevel1 && (
+                                                            <tr className="bg-slate-50 border-y border-slate-200">
+                                                                <td className="px-6 py-2 sticky left-0 bg-slate-50 border-r border-slate-200 font-extrabold text-slate-900 shadow-[2px_0_5px_rgba(0,0,0,0.02)] text-sm tracking-wide">
+                                                                    {line.level1}
+                                                                </td>
+                                                                <td colSpan={13} className="bg-slate-50" />
+                                                            </tr>
+                                                        )}
+                                                        <tr className={clsx(
+                                                            "border-b border-slate-100 hover:bg-slate-50/60 transition-colors group",
+                                                            isLevel1 && "bg-slate-50 hover:bg-slate-100/80 border-t border-slate-200"
+                                                        )}>
+                                                            <td className={clsx(
+                                                                "py-3 sticky left-0 border-r border-slate-100 shadow-[2px_0_5px_rgba(0,0,0,0.02)] transition-colors group-hover:bg-slate-50/60",
+                                                                isLevel1 ? "bg-slate-50 px-6 font-extrabold text-slate-900 text-sm tracking-wide" :
+                                                                depth === 1 ? "bg-white pr-6 pl-10 font-bold text-slate-800" :
+                                                                depth === 2 ? "bg-white pr-6 pl-14 font-medium text-slate-700" :
+                                                                depth === 3 ? "bg-white pr-6 pl-18 text-slate-600" :
+                                                                "bg-white pr-6 pl-22 text-slate-500 text-xs"
+                                                            )}>
+                                                                {label}
+                                                            </td>
+                                                            {Array.from({ length: 12 }, (_, i) => i + 1).map(m => (
+                                                                <td key={m} className={clsx("px-4 py-3 text-right tabular-nums", amountColor(line.monthlyAmounts?.[m.toString()], isLevel1))}>
+                                                                    {formatAmount(line.monthlyAmounts?.[m.toString()])}
+                                                                </td>
+                                                            ))}
+                                                            <td className={clsx("px-6 py-3 text-right tabular-nums border-l border-slate-200/60", amountColor(line.total, isLevel1))}>
+                                                                {formatAmount(line.total)}
+                                                            </td>
+                                                        </tr>
+                                                    </React.Fragment>
+                                                );
+                                            })}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+
+                        </>
                     )}
                 </div>
             </div>
