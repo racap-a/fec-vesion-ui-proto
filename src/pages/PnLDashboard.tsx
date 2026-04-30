@@ -105,11 +105,14 @@ export default function PnLDashboard() {
     const [fetchError, setFetchError] = useState<string | null>(null);
 
     const [pnlGenerating, setPnlGenerating] = useState(false);
+    const [pnlFailed, setPnlFailed] = useState(false);
 
     // Fetch available years on mount. If none yet, the backend is still generating — poll every 5s.
+    // Stops after 90s with no data and surfaces a failure state.
     useEffect(() => {
         if (!user?.companyId) return;
         let intervalId: ReturnType<typeof setInterval> | null = null;
+        const startedAt = Date.now();
 
         const fetchYears = async () => {
             try {
@@ -118,8 +121,14 @@ export default function PnLDashboard() {
                 if (years.length > 0) {
                     if (intervalId) clearInterval(intervalId);
                     setPnlGenerating(false);
+                    setPnlFailed(false);
                     setAvailableYears(years);
                     setSelectedYear(years[0]);
+                } else if (Date.now() - startedAt > 90_000) {
+                    if (intervalId) clearInterval(intervalId);
+                    setPnlGenerating(false);
+                    setPnlFailed(true);
+                    setIsLoading(false);
                 } else {
                     setPnlGenerating(true);
                     setIsLoading(false);
@@ -200,6 +209,21 @@ export default function PnLDashboard() {
 
     const hasCharts = level1Aggregates.length > 0;
 
+    // CA: sum of all lines whose label at any level contains "chiffre d'affaires"
+    const caTotal = useMemo(() =>
+        lines
+            .filter(l => [l.level1, l.level2, l.level3, l.level4, l.level5]
+                .some(lv => lv?.toLowerCase().includes("chiffre d'affaire")))
+            .reduce((sum, l) => sum + l.total, 0),
+        [lines]
+    );
+
+    // Résultat Net: algebraic sum of all presentation lines
+    const resultatNet = useMemo(() =>
+        lines.reduce((sum, l) => sum + l.total, 0),
+        [lines]
+    );
+
     // ── Render ──────────────────────────────────────────────────────────────
 
     return (
@@ -248,6 +272,14 @@ export default function PnLDashboard() {
                             <Loader2 size={40} className="animate-spin mb-4 text-brand-primary" />
                             <p className="font-medium text-slate-800">Chargement {selectedYear}…</p>
                         </div>
+                    ) : pnlFailed ? (
+                        <div className="flex flex-col items-center justify-center py-32 text-slate-400 gap-3">
+                            <AlertCircle size={36} className="text-amber-400" />
+                            <p className="font-medium text-slate-700">La génération du P&L a échoué</p>
+                            <p className="text-sm text-slate-400 text-center max-w-xs">
+                                L'IA n'a pas pu construire la hiérarchie (surcharge temporaire). Retournez au Mapping et cliquez sur <strong>Enregistrer</strong> pour relancer.
+                            </p>
+                        </div>
                     ) : pnlGenerating ? (
                         <div className="flex flex-col items-center justify-center py-32 text-slate-400">
                             <Loader2 size={36} className="animate-spin mb-4 text-brand-primary" />
@@ -266,6 +298,34 @@ export default function PnLDashboard() {
                         </div>
                     ) : (
                         <>
+                            {/* ── Hero KPIs: CA + Résultat Net ── */}
+                            {hasCharts && (
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+                                        <div className="flex items-center justify-between mb-3">
+                                            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Chiffre d'Affaires</p>
+                                            <TrendingUp size={15} className="text-emerald-500 shrink-0" />
+                                        </div>
+                                        <p className={clsx('text-3xl font-black tabular-nums leading-none', caTotal < 0 ? 'text-red-600' : 'text-slate-900')}>
+                                            {compactAmount(caTotal)}
+                                        </p>
+                                        <p className="text-xs text-slate-400 mt-2 tabular-nums">{formatAmount(caTotal)} €</p>
+                                    </div>
+                                    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+                                        <div className="flex items-center justify-between mb-3">
+                                            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Résultat Net</p>
+                                            {resultatNet < 0
+                                                ? <TrendingDown size={15} className="text-red-500 shrink-0" />
+                                                : <TrendingUp size={15} className="text-emerald-500 shrink-0" />}
+                                        </div>
+                                        <p className={clsx('text-3xl font-black tabular-nums leading-none', resultatNet < 0 ? 'text-red-600' : 'text-emerald-600')}>
+                                            {compactAmount(resultatNet)}
+                                        </p>
+                                        <p className="text-xs text-slate-400 mt-2 tabular-nums">{formatAmount(resultatNet)} €</p>
+                                    </div>
+                                </div>
+                            )}
+
                             {/* ── KPI Cards ── */}
                             {hasCharts && (
                                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">

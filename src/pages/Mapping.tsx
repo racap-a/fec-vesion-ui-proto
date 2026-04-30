@@ -29,13 +29,14 @@ interface MappingEntry {
     source: MappingSource;
     accountName: string;
     balance: number;
+    reasoning?: string;
 }
 
 interface FecAccount { accountId: string; accountName: string; balance: number; }
 
 interface ApiNode {
     type: string; id: string; label: string;
-    mappingSource?: string; balance?: number;
+    mappingSource?: string; balance?: number; reasoning?: string;
     children: ApiNode[];
 }
 
@@ -69,13 +70,35 @@ const SourceBadge = ({ source }: { source: MappingSource }) => {
 
 // ─── FEC Chip (draggable) ──────────────────────────────────────────────────────
 
-const FecChip = ({ accountId, accountName, balance, source }: {
-    accountId: string; accountName: string; balance: number; source?: MappingSource;
+const FecChip = ({ accountId, accountName, balance, source, reasoning }: {
+    accountId: string; accountName: string; balance: number; source?: MappingSource; reasoning?: string;
 }) => {
     const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
         id: accountId,
         data: { accountId, accountName, balance }
     });
+
+    if (reasoning) {
+        return (
+            <div
+                ref={setNodeRef} {...listeners} {...attributes}
+                className={clsx(
+                    "flex items-start gap-2 px-3 py-2 rounded-md border text-xs cursor-grab active:cursor-grabbing transition-all select-none w-full",
+                    "bg-amber-50 border-amber-200 hover:border-amber-400 hover:shadow-sm",
+                    isDragging && "opacity-40 ring-2 ring-amber-400/50"
+                )}
+            >
+                <GripVertical size={11} className="text-amber-400 shrink-0 mt-0.5" />
+                <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5">
+                        <span className="font-mono font-semibold text-amber-900">{accountId}</span>
+                        {source && <SourceBadge source={source} />}
+                    </div>
+                    <p className="text-[11px] text-slate-500 italic mt-0.5 leading-relaxed">{reasoning}</p>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div
@@ -98,7 +121,7 @@ const FecChip = ({ accountId, accountName, balance, source }: {
 const PcgDropZone = ({ pcgCode, pcgName, fecChildren, onUnmap }: {
     pcgCode: string;
     pcgName: string;
-    fecChildren: Array<{ id: string; name: string; balance: number; source: MappingSource }>;
+    fecChildren: Array<{ id: string; name: string; balance: number; source: MappingSource; reasoning?: string }>;
     onUnmap: (fecId: string) => void;
 }) => {
     const { setNodeRef, isOver } = useDroppable({
@@ -131,7 +154,7 @@ const PcgDropZone = ({ pcgCode, pcgName, fecChildren, onUnmap }: {
 
             {/* FEC chips */}
             {fecChildren.length > 0 ? (
-                <div className="flex flex-wrap gap-1.5">
+                <div className={fecChildren.some(f => f.reasoning) ? "flex flex-col gap-1.5" : "flex flex-wrap gap-1.5"}>
                     {fecChildren.map(fec => (
                         <FecChip
                             key={fec.id}
@@ -139,6 +162,7 @@ const PcgDropZone = ({ pcgCode, pcgName, fecChildren, onUnmap }: {
                             accountName={fec.name}
                             balance={fec.balance}
                             source={fec.source}
+                            reasoning={fec.reasoning}
                         />
                     ))}
                 </div>
@@ -300,6 +324,7 @@ export default function Mapping() {
                             source: (fec.mappingSource as MappingSource) || 'auto',
                             accountName: fec.label.replace(`${fec.id} - `, ''),
                             balance: fec.balance ?? 0,
+                            reasoning: fec.reasoning,
                         };
                     });
                 });
@@ -349,6 +374,7 @@ export default function Mapping() {
                             source: (fec.mappingSource as MappingSource) || 'auto',
                             accountName: fec.label.replace(`${fec.id} - `, ''),
                             balance: fec.balance ?? 0,
+                            reasoning: fec.reasoning,
                         };
                     });
                 });
@@ -511,7 +537,7 @@ export default function Mapping() {
         return selectedCategory.children.map(pcg => {
             const children = Object.entries(mappings)
                 .filter(([, m]) => m.pcgCode === pcg.id)
-                .map(([fecId, m]) => ({ id: fecId, name: m.accountName, balance: m.balance, source: m.source }))
+                .map(([fecId, m]) => ({ id: fecId, name: m.accountName, balance: m.balance, source: m.source, reasoning: m.reasoning }))
                 .sort((a, b) => a.id.localeCompare(b.id));
             return { pcg, children };
         });
@@ -542,7 +568,7 @@ export default function Mapping() {
                         if (q) return fecId.toLowerCase().includes(q) || m.accountName.toLowerCase().includes(q);
                         return true;
                     })
-                    .map(([fecId, m]) => ({ id: fecId, name: m.accountName, balance: m.balance, source: m.source }))
+                    .map(([fecId, m]) => ({ id: fecId, name: m.accountName, balance: m.balance, source: m.source, reasoning: m.reasoning }))
                     .sort((a, b) => a.id.localeCompare(b.id));
                 if (children.length > 0) result.push({ categoryLabel: cat.label, pcg, children });
             });
