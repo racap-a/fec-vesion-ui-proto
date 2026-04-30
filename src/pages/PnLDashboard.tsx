@@ -106,6 +106,8 @@ export default function PnLDashboard() {
 
     const [pnlGenerating, setPnlGenerating] = useState(false);
     const [pnlFailed, setPnlFailed] = useState(false);
+    const [insights, setInsights] = useState<string | null>(null);
+    const [insightsLoading, setInsightsLoading] = useState(false);
 
     // Fetch available years on mount. If none yet, the backend is still generating — poll every 5s.
     // Stops after 90s with no data and surfaces a failure state.
@@ -148,6 +150,7 @@ export default function PnLDashboard() {
         if (!user?.companyId || selectedYear === 0) return;
         setIsLoading(true);
         setFetchError(null);
+        setInsights(null);
         try {
             const res = await api.get(`/pl/${user.companyId}?year=${selectedYear}`);
             setLines((res.data as PLResponse).lines ?? []);
@@ -159,6 +162,18 @@ export default function PnLDashboard() {
     }, [user?.companyId, selectedYear]);
 
     useEffect(() => { fetchData(); }, [fetchData]);
+
+    // Fetch AI insights after lines are loaded — best-effort, non-blocking
+    useEffect(() => {
+        if (!user?.companyId || selectedYear === 0 || lines.length === 0) return;
+        let cancelled = false;
+        setInsightsLoading(true);
+        api.get(`/pl/${user.companyId}/insights?year=${selectedYear}`)
+            .then(res => { if (!cancelled) setInsights(res.data?.text ?? null); })
+            .catch(() => { if (!cancelled) setInsights(null); })
+            .finally(() => { if (!cancelled) setInsightsLoading(false); });
+        return () => { cancelled = true; };
+    }, [user?.companyId, selectedYear, lines.length]);
 
     // ── Chart data ──────────────────────────────────────────────────────────
     // Backend returns only leaf rows (always Level1+Level2 minimum, never a Level1-only aggregate row).
@@ -323,6 +338,25 @@ export default function PnLDashboard() {
                                         </p>
                                         <p className="text-xs text-slate-400 mt-2 tabular-nums">{formatAmount(resultatNet)} €</p>
                                     </div>
+                                </div>
+                            )}
+
+                            {/* ── AI Insights ── */}
+                            {(insightsLoading || insights) && (
+                                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+                                    <div className="flex items-center gap-2 mb-3">
+                                        <Sparkles size={14} className="text-purple-400 shrink-0" />
+                                        <p className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Analyse IA</p>
+                                    </div>
+                                    {insightsLoading ? (
+                                        <div className="space-y-2">
+                                            <div className="h-3 bg-slate-100 rounded animate-pulse w-full" />
+                                            <div className="h-3 bg-slate-100 rounded animate-pulse w-5/6" />
+                                            <div className="h-3 bg-slate-100 rounded animate-pulse w-4/6" />
+                                        </div>
+                                    ) : (
+                                        <p className="text-sm text-slate-600 leading-relaxed italic">{insights}</p>
+                                    )}
                                 </div>
                             )}
 
