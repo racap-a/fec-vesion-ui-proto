@@ -1,9 +1,8 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
-import { Loader2, AlertCircle, BarChart3, FileText, TrendingUp, TrendingDown, Minus, Sparkles, ArrowRight } from 'lucide-react';
+import { Loader2, AlertCircle, BarChart3, FileText, TrendingUp, TrendingDown, Minus, Sparkles } from 'lucide-react';
 import { clsx } from 'clsx';
-import { Link } from 'react-router-dom';
 import {
     ResponsiveContainer, BarChart, Bar, XAxis, YAxis,
     CartesianGrid, Tooltip, Legend, PieChart, Pie, Cell,
@@ -105,19 +104,35 @@ export default function PnLDashboard() {
     const [isLoading, setIsLoading] = useState<boolean>(true);
     const [fetchError, setFetchError] = useState<string | null>(null);
 
-    // Fetch available years on mount, then auto-select the most recent one with data
+    const [pnlGenerating, setPnlGenerating] = useState(false);
+
+    // Fetch available years on mount. If none yet, the backend is still generating — poll every 5s.
     useEffect(() => {
         if (!user?.companyId) return;
-        api.get(`/pl/${user.companyId}/available-years`)
-            .then(res => {
+        let intervalId: ReturnType<typeof setInterval> | null = null;
+
+        const fetchYears = async () => {
+            try {
+                const res = await api.get(`/pl/${user.companyId}/available-years`);
                 const years: number[] = res.data ?? [];
-                setAvailableYears(years);
-                setSelectedYear(years.length > 0 ? years[0] : new Date().getFullYear());
-            })
-            .catch(() => {
+                if (years.length > 0) {
+                    if (intervalId) clearInterval(intervalId);
+                    setPnlGenerating(false);
+                    setAvailableYears(years);
+                    setSelectedYear(years[0]);
+                } else {
+                    setPnlGenerating(true);
+                    setIsLoading(false);
+                }
+            } catch {
                 setSelectedYear(new Date().getFullYear());
                 setIsLoading(false);
-            });
+            }
+        };
+
+        fetchYears();
+        intervalId = setInterval(fetchYears, 5000);
+        return () => { if (intervalId) clearInterval(intervalId); };
     }, [user?.companyId]);
 
     const fetchData = useCallback(async () => {
@@ -233,23 +248,21 @@ export default function PnLDashboard() {
                             <Loader2 size={40} className="animate-spin mb-4 text-brand-primary" />
                             <p className="font-medium text-slate-800">Chargement {selectedYear}…</p>
                         </div>
+                    ) : pnlGenerating ? (
+                        <div className="flex flex-col items-center justify-center py-32 text-slate-400">
+                            <Loader2 size={36} className="animate-spin mb-4 text-brand-primary" />
+                            <p className="font-medium text-slate-700 mb-1">Génération du Compte de Résultat…</p>
+                            <p className="text-sm text-slate-400 text-center max-w-xs">
+                                L'IA analyse vos comptes et construit la hiérarchie P&L. Cela prend quelques secondes.
+                            </p>
+                        </div>
                     ) : lines.length === 0 ? (
                         <div className="flex flex-col items-center justify-center py-32 text-slate-400">
-                            <div className="w-16 h-16 bg-violet-50 text-violet-400 rounded-full flex items-center justify-center mb-4 border border-dashed border-violet-200">
-                                <Sparkles size={24} />
-                            </div>
-                            <p className="font-medium text-slate-700 mb-1">Aucune hiérarchie P&L générée</p>
-                            <p className="text-sm text-slate-400 mb-6 text-center max-w-xs">
-                                Lancez l'analyse IA pour construire la structure du Compte de Résultat.
+                            <Sparkles size={28} className="mb-4 text-slate-300" />
+                            <p className="font-medium text-slate-600 mb-1">Aucune donnée pour cette période</p>
+                            <p className="text-sm text-slate-400 text-center max-w-xs">
+                                Vérifiez que le fichier FEC a bien été ingéré et le mapping sauvegardé.
                             </p>
-                            <Link
-                                to="/ai-pnl-validation"
-                                className="inline-flex items-center gap-2 bg-violet-600 hover:bg-violet-700 text-white px-5 py-2.5 rounded-xl font-semibold text-sm transition-colors shadow-sm"
-                            >
-                                <Sparkles size={15} />
-                                Lancer la Validation IA
-                                <ArrowRight size={15} />
-                            </Link>
                         </div>
                     ) : (
                         <>

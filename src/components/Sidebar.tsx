@@ -38,7 +38,6 @@ const NAV_SECTIONS: NavSection[] = [
             { name: 'Ingestion FEC', icon: UploadCloud, href: '/ingestion' },
             { name: 'Mapping PCG', icon: Map, href: '/mapping' },
             { name: 'Saisie Extra-Comptable', icon: Calculator, href: '/saisie-extra' },
-            { name: 'Validation IA P&L', icon: Sparkles, href: '/ai-pnl-validation' },
         ],
     },
     {

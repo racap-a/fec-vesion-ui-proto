@@ -264,7 +264,7 @@ export default function CompanyDetail() {
                             <div className="bg-white rounded-xl border border-slate-200 p-6">
                                 <div className="flex items-center justify-between mb-4">
                                     <h3 className="font-bold text-slate-800 flex items-center gap-2"><BarChart3 size={16} /> Compte de Résultat (P&L)</h3>
-                                    <button onClick={() => navigate('/ai-pnl-validation')} className="text-xs text-brand-primary font-semibold hover:underline flex items-center gap-1">
+                                    <button onClick={() => navigate('/pl-dashboard')} className="text-xs text-brand-primary font-semibold hover:underline flex items-center gap-1">
                                         Ouvrir <ChevronRight size={13} />
                                     </button>
                                 </div>

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
-    Building2, UploadCloud, Map, BarChart3, Sparkles,
+    Building2, UploadCloud, Map, BarChart3,
     Calculator, ArrowRight, PlusCircle, ChevronRight,
     Users, CheckCircle2, Clock, AlertCircle, TrendingUp,
 } from 'lucide-react';
@@ -26,18 +26,16 @@ interface CompanyWithStats {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const PIPELINE = [
-    { step: 1, icon: UploadCloud, name: 'Ingestion FEC',      desc: 'Upload & traitement',        href: '/ingestion',          iconClass: 'bg-emerald-100 text-emerald-600' },
-    { step: 2, icon: Map,         name: 'Mapping PCG',         desc: 'Association des comptes',    href: '/mapping',            iconClass: 'bg-blue-100 text-blue-600' },
-    { step: 3, icon: Sparkles,    name: 'Validation IA',       desc: 'Hiérarchie P&L',             href: '/ai-pnl-validation',  iconClass: 'bg-violet-100 text-violet-600' },
-    { step: 4, icon: BarChart3,   name: 'Compte de Résultat',  desc: 'Vue analytique',             href: '/pl-dashboard',       iconClass: 'bg-indigo-100 text-indigo-600' },
+    { step: 1, icon: UploadCloud, name: 'Ingestion FEC',      desc: 'Upload & traitement',        href: '/ingestion',  iconClass: 'bg-emerald-100 text-emerald-600' },
+    { step: 2, icon: Map,         name: 'Mapping PCG',         desc: 'Association des comptes',    href: '/mapping',    iconClass: 'bg-blue-100 text-blue-600' },
+    { step: 3, icon: BarChart3,   name: 'Compte de Résultat',  desc: 'Vue analytique',             href: '/pl-dashboard', iconClass: 'bg-indigo-100 text-indigo-600' },
 ];
 
 const USER_FEATURES = [
-    { icon: UploadCloud, name: 'Ingestion FEC',        desc: 'Importez et traitez vos fichiers FEC.',                      href: '/ingestion',         iconClass: 'bg-emerald-50 text-emerald-600 border-emerald-100' },
-    { icon: Map,         name: 'Mapping PCG',           desc: 'Associez vos comptes au plan comptable général.',            href: '/mapping',           iconClass: 'bg-blue-50 text-blue-600 border-blue-100' },
-    { icon: Calculator,  name: 'Saisie Extra-Comptable',desc: 'Ajoutez vos budgets et retraitements manuels.',             href: '/saisie-extra',      iconClass: 'bg-amber-50 text-amber-600 border-amber-100' },
-    { icon: Sparkles,    name: 'Validation IA P&L',     desc: "Validez et ajustez la hiérarchie générée par l'IA.",        href: '/ai-pnl-validation', iconClass: 'bg-violet-50 text-violet-600 border-violet-100' },
-    { icon: BarChart3,   name: 'Compte de Résultat',    desc: "Analysez votre P&L mensuel en un coup d'œil.",              href: '/pl-dashboard',      iconClass: 'bg-indigo-50 text-indigo-600 border-indigo-100' },
+    { icon: UploadCloud, name: 'Ingestion FEC',        desc: 'Importez et traitez vos fichiers FEC.',              href: '/ingestion',    iconClass: 'bg-emerald-50 text-emerald-600 border-emerald-100' },
+    { icon: Map,         name: 'Mapping PCG',           desc: 'Associez vos comptes au plan comptable général.',    href: '/mapping',      iconClass: 'bg-blue-50 text-blue-600 border-blue-100' },
+    { icon: Calculator,  name: 'Saisie Extra-Comptable',desc: 'Ajoutez vos budgets et retraitements manuels.',     href: '/saisie-extra', iconClass: 'bg-amber-50 text-amber-600 border-amber-100' },
+    { icon: BarChart3,   name: 'Compte de Résultat',    desc: "Analysez votre P&L mensuel en un coup d'œil.",      href: '/pl-dashboard', iconClass: 'bg-indigo-50 text-indigo-600 border-indigo-100' },
 ];
 
 const ADMIN_FEATURES = [
