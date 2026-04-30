@@ -6,7 +6,7 @@ import {
 } from '@dnd-kit/core';
 import {
     Folder, GripVertical, Save, Lock, Sparkles, Pencil,
-    AlertTriangle, RefreshCcw,
+    AlertTriangle, RefreshCcw, Search, X,
     Map as MapIcon, Loader2, Play, CheckCircle2
 } from 'lucide-react';
 import { clsx } from 'clsx';
@@ -275,6 +275,7 @@ export default function Mapping() {
     const [aiRunning, setAiRunning] = useState(false);
     const [aiFailed, setAiFailed] = useState(false);
     const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
+    const [searchQuery, setSearchQuery] = useState('');
     const [companyContext, setCompanyContext] = useState<CompanyContext>({
         sector: '',
         companyType: '',
@@ -516,6 +517,47 @@ export default function Mapping() {
         });
     }, [selectedCategory, mappings]);
 
+    const aiSuggestionCount = useMemo(() =>
+        Object.values(mappings).filter(m => m.source === 'ai').length,
+        [mappings]
+    );
+
+    const isFiltered = searchQuery.trim().length > 0 || selectedCategoryId === '__ai__';
+
+    const filteredPcgRows = useMemo(() => {
+        if (!treeResponse || !isFiltered) return null;
+        const isAiMode = selectedCategoryId === '__ai__';
+        const q = searchQuery.trim().toLowerCase();
+        const result: Array<{
+            categoryLabel: string;
+            pcg: ApiNode;
+            children: Array<{ id: string; name: string; balance: number; source: MappingSource }>;
+        }> = [];
+        treeResponse.tree.forEach(cat => {
+            cat.children.forEach(pcg => {
+                const children = Object.entries(mappings)
+                    .filter(([fecId, m]) => {
+                        if (m.pcgCode !== pcg.id) return false;
+                        if (isAiMode && m.source !== 'ai') return false;
+                        if (q) return fecId.toLowerCase().includes(q) || m.accountName.toLowerCase().includes(q);
+                        return true;
+                    })
+                    .map(([fecId, m]) => ({ id: fecId, name: m.accountName, balance: m.balance, source: m.source }))
+                    .sort((a, b) => a.id.localeCompare(b.id));
+                if (children.length > 0) result.push({ categoryLabel: cat.label, pcg, children });
+            });
+        });
+        return result;
+    }, [searchQuery, selectedCategoryId, isFiltered, treeResponse, mappings]);
+
+    const filteredUnmapped = useMemo(() => {
+        const q = searchQuery.trim().toLowerCase();
+        if (!q) return [];
+        return unmappedAccounts.filter(a =>
+            a.accountId.toLowerCase().includes(q) || a.accountName.toLowerCase().includes(q)
+        );
+    }, [searchQuery, unmappedAccounts]);
+
     // ── Render phases ────────────────────────────────────────────────────────
 
     if (phase === 'checking') {
@@ -744,66 +786,166 @@ export default function Mapping() {
 
                     {/* LEFT: Category navigation */}
                     <aside className="w-52 bg-white border-r border-slate-200 flex flex-col overflow-hidden shrink-0">
-                        <div className="px-4 py-2.5 border-b border-slate-100 shrink-0">
+                        <div className="px-3 py-2.5 border-b border-slate-100 shrink-0 space-y-2">
                             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Catégories PCG</p>
+                            <div className="relative">
+                                <Search size={11} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                                <input
+                                    type="text"
+                                    value={searchQuery}
+                                    onChange={e => {
+                                        setSearchQuery(e.target.value);
+                                        if (e.target.value) setSelectedCategoryId(treeResponse?.tree[0]?.id ?? null);
+                                    }}
+                                    placeholder="Rechercher un compte…"
+                                    className="w-full pl-7 pr-6 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-md focus:outline-none focus:ring-1 focus:ring-brand-primary/40 focus:border-brand-primary placeholder:text-slate-400"
+                                />
+                                {searchQuery && (
+                                    <button onClick={() => setSearchQuery('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                                        <X size={11} />
+                                    </button>
+                                )}
+                            </div>
                         </div>
                         <div className="flex-1 overflow-y-auto py-1">
+                            {aiSuggestionCount > 0 && (
+                                <button
+                                    onClick={() => { setSelectedCategoryId('__ai__'); setSearchQuery(''); }}
+                                    className={clsx(
+                                        "w-full flex items-center gap-2 px-4 py-2.5 text-left transition-colors border-r-2 border-b border-slate-100",
+                                        selectedCategoryId === '__ai__' && !searchQuery
+                                            ? "bg-purple-50 border-purple-400 text-purple-700"
+                                            : "border-transparent hover:bg-slate-50 text-slate-600"
+                                    )}
+                                >
+                                    <Sparkles size={13} className={clsx("shrink-0", selectedCategoryId === '__ai__' && !searchQuery ? "text-purple-500" : "text-purple-400")} />
+                                    <span className="flex-1 text-xs font-medium truncate">Suggestions IA</span>
+                                    <span className={clsx(
+                                        "text-[10px] font-mono px-1.5 py-0.5 rounded-full shrink-0 font-semibold",
+                                        selectedCategoryId === '__ai__' && !searchQuery ? "bg-purple-200 text-purple-700" : "bg-purple-100 text-purple-600"
+                                    )}>
+                                        {aiSuggestionCount}
+                                    </span>
+                                </button>
+                            )}
                             {treeResponse?.tree.map(cat => (
                                 <CategoryNavItem
                                     key={cat.id}
                                     category={cat}
                                     count={categoryChipCounts[cat.id] ?? 0}
-                                    isSelected={selectedCategoryId === cat.id}
-                                    onSelect={() => setSelectedCategoryId(cat.id)}
+                                    isSelected={selectedCategoryId === cat.id && !searchQuery}
+                                    onSelect={() => { setSelectedCategoryId(cat.id); setSearchQuery(''); }}
                                 />
                             ))}
                         </div>
                     </aside>
 
-                    {/* RIGHT: PCG drop zones for selected category */}
+                    {/* RIGHT: PCG drop zones */}
                     <main className="flex-1 overflow-y-auto p-5">
 
-                        {/* Unmapped — always visible when there are stragglers */}
-                        {unmappedAccounts.length > 0 && (
-                            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-5">
-                                <p className="flex items-center gap-1.5 text-xs font-bold text-amber-800 mb-2.5">
-                                    <AlertTriangle size={13} />
-                                    {unmappedAccounts.length} compte{unmappedAccounts.length > 1 ? 's' : ''} sans correspondance — glissez vers un nœud PCG ci-dessous
-                                </p>
-                                <div className="flex flex-wrap gap-1.5">
-                                    {unmappedAccounts.map(fec => (
-                                        <FecChip key={fec.accountId} accountId={fec.accountId} accountName={fec.accountName} balance={fec.balance} />
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-
-                        {/* Selected category detail */}
-                        {selectedCategory ? (
+                        {filteredPcgRows !== null ? (
+                            /* ── Filtered view: search or AI review ── */
                             <>
-                                <div className="flex items-center gap-2 mb-4">
-                                    <Folder size={15} className="text-amber-500 shrink-0" />
-                                    <h2 className="text-sm font-bold text-slate-700">{selectedCategory.label}</h2>
-                                    <span className="text-xs text-slate-400">
-                                        ({selectedPcgRows.reduce((s, p) => s + p.children.length, 0)} compte{selectedPcgRows.reduce((s, p) => s + p.children.length, 0) !== 1 ? 's' : ''} mappé{selectedPcgRows.reduce((s, p) => s + p.children.length, 0) !== 1 ? 's' : ''})
-                                    </span>
-                                </div>
-                                <div className="space-y-2">
-                                    {selectedPcgRows.map(({ pcg, children }) => (
-                                        <PcgDropZone
-                                            key={pcg.id}
-                                            pcgCode={pcg.id}
-                                            pcgName={pcg.label.split(' - ').slice(1).join(' - ')}
-                                            fecChildren={children}
-                                            onUnmap={() => {}}
-                                        />
-                                    ))}
-                                </div>
+                                {/* Unmapped accounts matching search */}
+                                {filteredUnmapped.length > 0 && (
+                                    <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-5">
+                                        <p className="flex items-center gap-1.5 text-xs font-bold text-amber-800 mb-2.5">
+                                            <AlertTriangle size={13} />
+                                            {filteredUnmapped.length} compte{filteredUnmapped.length > 1 ? 's' : ''} non mappé{filteredUnmapped.length > 1 ? 's' : ''}
+                                        </p>
+                                        <div className="flex flex-wrap gap-1.5">
+                                            {filteredUnmapped.map(fec => (
+                                                <FecChip key={fec.accountId} accountId={fec.accountId} accountName={fec.accountName} balance={fec.balance} />
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {filteredPcgRows.length === 0 ? (
+                                    <div className="flex flex-col items-center justify-center h-40 text-slate-400 gap-2">
+                                        <Search size={24} className="opacity-30" />
+                                        <p className="text-sm">Aucun compte trouvé</p>
+                                    </div>
+                                ) : (
+                                    <>
+                                        <p className="text-xs text-slate-500 mb-4">
+                                            {selectedCategoryId === '__ai__'
+                                                ? `${filteredPcgRows.reduce((s, r) => s + r.children.length, 0)} suggestion${filteredPcgRows.reduce((s, r) => s + r.children.length, 0) > 1 ? 's' : ''} IA — glissez pour corriger`
+                                                : `${filteredPcgRows.reduce((s, r) => s + r.children.length, 0) + filteredUnmapped.length} résultat${filteredPcgRows.reduce((s, r) => s + r.children.length, 0) + filteredUnmapped.length > 1 ? 's' : ''} pour "${searchQuery}"`
+                                            }
+                                        </p>
+                                        {Array.from(
+                                            filteredPcgRows.reduce((map, row) => {
+                                                if (!map.has(row.categoryLabel)) map.set(row.categoryLabel, []);
+                                                map.get(row.categoryLabel)!.push(row);
+                                                return map;
+                                            }, new Map<string, typeof filteredPcgRows>())
+                                        ).map(([catLabel, rows]) => (
+                                            <div key={catLabel} className="mb-6">
+                                                <div className="flex items-center gap-2 mb-2">
+                                                    <Folder size={13} className="text-amber-500 shrink-0" />
+                                                    <p className="text-xs font-bold text-slate-600">{catLabel}</p>
+                                                </div>
+                                                <div className="space-y-2">
+                                                    {rows.map(({ pcg, children }) => (
+                                                        <PcgDropZone
+                                                            key={pcg.id}
+                                                            pcgCode={pcg.id}
+                                                            pcgName={pcg.label.split(' - ').slice(1).join(' - ')}
+                                                            fecChildren={children}
+                                                            onUnmap={() => {}}
+                                                        />
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </>
+                                )}
                             </>
                         ) : (
-                            <div className="flex items-center justify-center h-full text-slate-400 text-sm">
-                                Sélectionnez une catégorie
-                            </div>
+                            /* ── Normal view: unmapped + selected category ── */
+                            <>
+                                {unmappedAccounts.length > 0 && (
+                                    <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-5">
+                                        <p className="flex items-center gap-1.5 text-xs font-bold text-amber-800 mb-2.5">
+                                            <AlertTriangle size={13} />
+                                            {unmappedAccounts.length} compte{unmappedAccounts.length > 1 ? 's' : ''} sans correspondance — glissez vers un nœud PCG ci-dessous
+                                        </p>
+                                        <div className="flex flex-wrap gap-1.5">
+                                            {unmappedAccounts.map(fec => (
+                                                <FecChip key={fec.accountId} accountId={fec.accountId} accountName={fec.accountName} balance={fec.balance} />
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {selectedCategory ? (
+                                    <>
+                                        <div className="flex items-center gap-2 mb-4">
+                                            <Folder size={15} className="text-amber-500 shrink-0" />
+                                            <h2 className="text-sm font-bold text-slate-700">{selectedCategory.label}</h2>
+                                            <span className="text-xs text-slate-400">
+                                                ({selectedPcgRows.reduce((s, p) => s + p.children.length, 0)} compte{selectedPcgRows.reduce((s, p) => s + p.children.length, 0) !== 1 ? 's' : ''} mappé{selectedPcgRows.reduce((s, p) => s + p.children.length, 0) !== 1 ? 's' : ''})
+                                            </span>
+                                        </div>
+                                        <div className="space-y-2">
+                                            {selectedPcgRows.map(({ pcg, children }) => (
+                                                <PcgDropZone
+                                                    key={pcg.id}
+                                                    pcgCode={pcg.id}
+                                                    pcgName={pcg.label.split(' - ').slice(1).join(' - ')}
+                                                    fecChildren={children}
+                                                    onUnmap={() => {}}
+                                                />
+                                            ))}
+                                        </div>
+                                    </>
+                                ) : (
+                                    <div className="flex items-center justify-center h-full text-slate-400 text-sm">
+                                        Sélectionnez une catégorie
+                                    </div>
+                                )}
+                            </>
                         )}
                     </main>
                 </div>

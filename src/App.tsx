@@ -87,7 +87,14 @@ function App() {
           {/* Standard User Features (Accessible to all authenticated users) */}
           <Route path="ingestion" element={<Ingestion />} />
           <Route path="mapping" element={<Mapping />} />
-          <Route path="ai-pnl-validation" element={<AIPnlValidation />} />
+          <Route
+            path="ai-pnl-validation"
+            element={
+              <ProtectedRoute allowedRoles={['Admin']}>
+                <AIPnlValidation />
+              </ProtectedRoute>
+            }
+          />
           <Route path="saisie-extra" element={<SaisieExtraComptable />} />
           <Route path="pl-dashboard" element={<PnLDashboard />} />
         </Route>
